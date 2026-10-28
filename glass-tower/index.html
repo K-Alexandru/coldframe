@@ -1,6 +1,8 @@
 <meta charset="utf-8">
 <meta name="robots" content="noindex, nofollow">
 <title>Glass Tower</title>
+<script>if (/[?&]embed\b/.test(location.search)) document.documentElement.classList.add('embed');   // before first paint: the host supplies the controls, so this page's header and dock never flash over the embed</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,7 +25,7 @@
   }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--display); overflow: hidden; }
-  .app { position: relative; height: 100%; overflow: hidden; }
+  .app { position: relative; height: 100%; height: 100dvh; overflow: hidden; }
   #stage { position: absolute; inset: 0; }
   #stage canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
 
@@ -67,7 +69,7 @@
     background: var(--chip); font-size: 13px; font-weight: 520; cursor: pointer; white-space: nowrap;
     transition: background-color .15s, border-color .15s;
   }
-  .chip:hover { background: var(--chip-hover); }
+  @media (hover: hover) { .chip:hover { background: var(--chip-hover); } }
   .chip[aria-pressed="true"], .chip.on { border-color: color-mix(in srgb, var(--rgb) 55%, transparent); background: color-mix(in srgb, var(--rgb) 14%, transparent); }
   .chip:focus-visible, .sw:focus-visible { outline: 2px solid var(--rgb); outline-offset: 2px; }
   .chip[aria-disabled="true"] { cursor: progress; }
@@ -91,7 +93,7 @@
     box-shadow: inset 0 0 0 3px var(--bg);
     transition: transform .15s;
   }
-  .sw:hover { transform: scale(1.08); }
+  @media (hover: hover) { .sw:hover { transform: scale(1.08); } }
   .sw[aria-checked="true"] { box-shadow: inset 0 0 0 3px var(--bg), 0 0 0 2px var(--ink); }
   .sw.rainbow { background: conic-gradient(#ff4d4d, #ffb84d, #f4ff4d, #4dff88, #4dd8ff, #6b4dff, #ff4dd2, #ff4d4d); }
   .sw.off { background: linear-gradient(135deg, transparent 45%, var(--muted) 45%, var(--muted) 55%, transparent 55%), #1a1c20; }
@@ -119,7 +121,24 @@
     .sw { width: 28px; height: 28px; }
   }
   /* embed mode: the storefront supplies its own controls */
-  body.embed .top, body.embed .dock { display: none; }
+  html.embed .top, html.embed .dock, body.embed .top, body.embed .dock { display: none; }
+  /* short landscape phone: keep the dock from eating the view */
+  @media (max-height: 460px) {
+    .top .spec, .top .howto { display: none; }
+    .dock-inner { padding: 8px 12px; }
+  }
+  /* touch: 44px targets, a smaller tap label, and in the store a vertical swipe over the model scrolls the page
+     (OrbitControls sets touch-action:none inline, hence !important; horizontal drags and pinch still reach it) */
+  @media (pointer: coarse) {
+    .chip { height: 44px; }
+    .swatches { gap: 10px; }
+    .sw { position: relative; }
+    .sw::after { content: ''; position: absolute; inset: -8px -5px; }
+    #tip { max-width: 190px; padding: 6px 9px; }
+    #tip b { font-size: 12px; }
+    #tip span { font-size: 10.5px; }
+    html.embed #stage canvas { touch-action: pan-y !important; }
+  }
 </style>
 
 <main class="app">
@@ -262,6 +281,9 @@ controls.maxPolarAngle = Math.PI * 0.6;
 controls.autoRotateSpeed = 0.7;
 
 // ---------- procedural textures ----------
+// part ownership: while a part builder runs, BUILD collects every material and texture it creates (see buildPart)
+let BUILD = null;
+const own = x => { if (BUILD) BUILD.owned.add(x); return x; };
 const maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 function rand(seed) {
   return () => {
@@ -277,7 +299,7 @@ function prepTex(t, { srgb = true, repeat } = {}) {
   if (repeat) t.repeat.set(repeat[0], repeat[1]);
   t.anisotropy = maxAniso;
   t.needsUpdate = true;
-  return t;
+  return own(t);
 }
 const canvasTextures = [];   // redrawn once web fonts have loaded
 function canvasTex(w, h, draw, opts) {
@@ -413,8 +435,8 @@ const wordmark = canvasTex(512, 32, (g, w, h) => {
 
 
 // ---------- materials ----------
-const std = (o) => new THREE.MeshStandardMaterial(o);
-const phys = (o) => new THREE.MeshPhysicalMaterial(o);
+const std = (o) => own(new THREE.MeshStandardMaterial(o));
+const phys = (o) => own(new THREE.MeshPhysicalMaterial(o));
 // userData.boxUV: texel density (tiles per cm) for world-space box projection at bake time
 // userData.env: how much of the studio reflection the surface sees (interior parts sit in shade)
 function tag(m, boxUV, env = 1) { m.userData.boxUV = boxUV; m.userData.env = env; return m; }
@@ -569,6 +591,16 @@ const FINISH = {
 const finishHooks = [];
 let finish = 'black';
 function onFinish(fn) { finishHooks.push(fn); fn(finish); }
+// finish-dependent materials: looks = { black: {...}, snow: {...} }. A look maps property → value (colours take a hex), or
+// is a function (mat) => void for anything a property can't say. It applies at once for the current finish.
+const finishMats = [];
+function finishSet(mat, looks) { const e = { mat, looks }; finishMats.push(e); applyLook(e, finish); return mat; }
+function applyLook({ mat, looks }, name) {
+  const L = looks[name];
+  if (!L) return;
+  if (typeof L === 'function') { L(mat); return; }
+  for (const k in L) { if (mat[k] && mat[k].isColor) mat[k].setHex(L[k]); else mat[k] = L[k]; }
+}
 function setFinish(name) {
   finish = name; frameEpoch++;
   const f = FINISH[name];
@@ -580,6 +612,7 @@ function setFinish(name) {
   M.chassis.roughness = 0.46 + f.roughBias;
   // white sleeving and plastics scatter more; give them a softer sheen
   M.sleeve.sheenColor.setHex(name === 'snow' ? 0xffffff : 0x6d7077);
+  for (const e of finishMats) applyLook(e, name);
   for (const fn of finishHooks) fn(name);
 }
 setFinish('black');
@@ -588,7 +621,8 @@ setFinish('black');
 // 'cam' (NZXT CAM's infographic), 'default' (the Kraken's own liquid-temperature screen before CAM loads), 'splash' or 'off'
 let cpuTemp = 37, pumpRpm = 2480, lcdColor = '#e6efff', lcdScreen = 'cam';
 const liquidTemp = () => Math.round(26 + (cpuTemp - 33) * 0.3);
-let lcdMat;   // the pump screen's material, so the power section can drive its backlight
+const LCD_OFF = { emissiveIntensity: 0 };   // inert stand-in while no LCD head is mounted
+let lcdMat = LCD_OFF;   // the pump screen's material, so the power section can drive its backlight
 let setQcode;   // set by the board section: shows a code or the CPU temperature on the Q-Code display
 
 // RGB-driven materials: frosted diffusers that glow in the current lighting colour. Each is tagged with the controller
@@ -845,6 +879,201 @@ function sleeveUV(geo, length, radius, cell) {
   return geo;
 }
 
+// ---------- part engine: kit ----------
+// polygon with filleted corners, pts = [[x, y, r], ...]; always wound counter-clockwise
+const filletPoly = (pts, P = THREE.Shape) => {
+  let area = 0;
+  pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length]; area += p[0] * q[1] - q[0] * p[1]; });
+  if (area < 0) pts = pts.slice().reverse();
+  const s = new P(), n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const [ax, ay] = pts[(i + n - 1) % n], [bx, by, r] = pts[i], [cx, cy] = pts[(i + 1) % n];
+    const lu = Math.hypot(ax - bx, ay - by), lv = Math.hypot(cx - bx, cy - by);
+    const ux = (ax - bx) / lu, uy = (ay - by) / lu, vx = (cx - bx) / lv, vy = (cy - by) / lv;
+    const half = Math.acos(Math.max(-1, Math.min(1, ux * vx + uy * vy))) / 2;
+    const d = r > 0 ? Math.min(r / Math.tan(half), lu * 0.48, lv * 0.48) : 0;
+    if (d < 1e-4) { if (i === 0) s.moveTo(bx, by); else s.lineTo(bx, by); continue; }
+    if (i === 0) s.moveTo(bx + ux * d, by + uy * d); else s.lineTo(bx + ux * d, by + uy * d);
+    s.quadraticCurveTo(bx, by, bx + vx * d, by + vy * d);
+  }
+  s.closePath();
+  return s;
+};
+const fitText = (g, text, cx, cy, font, spacing, width) => {
+  g.font = font;
+  const raw = [...text].reduce((a, ch) => a + g.measureText(ch).width, 0);
+  spacedText(g, text, cx, cy, font, spacing, (width - spacing * (text.length - 1)) / raw);
+};
+// the frames of a flat wire bundle: [point, up (the wide side), side, tangent] at 73 parameters along the run, the wide
+// side following per-point "up" hints, kept square to the run
+const ribbonFrames = (pts, ups) => {
+  const c = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)), false, 'centripetal');
+  const n = pts.length - 1, U = ups.map(u => new THREE.Vector3(...u).normalize()), frames = [];
+  for (let i = 0; i <= 72; i++) {
+    const t = i / 72, p = c.getPoint(t), tan = c.getTangent(t);
+    const f = Math.min(t * n, n - 1e-6), k = Math.floor(f), e = f - k;
+    const up = U[k].clone().lerp(U[k + 1], e * e * (3 - 2 * e));
+    up.addScaledVector(tan, -up.dot(tan)).normalize();
+    frames.push([p, up, new THREE.Vector3().crossVectors(tan, up), tan]);
+  }
+  return frames;
+};
+// the smallest x any strand's surface reaches along a ribbon's frames (a strand sits at the corners of the cols × rows grid
+// at its extremes)
+const ribbonMinX = (frames, cols, rows, sp, r) => Math.min(...frames.map(([p, up, side]) =>
+  p.x - r - (cols - 1) / 2 * sp * Math.abs(up.x) - (rows - 1) / 2 * sp * Math.abs(side.x)));
+// flat bundle of wires: the wide side follows per-point "up" hints, kept square to the run
+const ribbon = (parent, pts, ups, cols, rows, sp, r, mat) => {
+  const frames = ribbonFrames(pts, ups);
+  const geos = [];
+  for (let a = 0; a < cols; a++) for (let b = 0; b < rows; b++) {
+    const oa = (a - (cols - 1) / 2) * sp, ob = (b - (rows - 1) / 2) * sp;
+    const strand = new THREE.CatmullRomCurve3(frames.map(([p, up, side]) => p.clone().addScaledVector(up, oa).addScaledVector(side, ob)));
+    geos.push(new THREE.TubeGeometry(strand, 90, r, 8, false));
+  }
+  add(mergeGeometries(geos), mat, 0, 0, 0, parent);
+  return frames;
+};
+// a sleeved tube along a point list (centripetal Catmull-Rom) or along a curve (any THREE.Curve, a CurvePath included;
+// three r170 curves carry no isCurve flag, so anything that is not an array is taken as a curve); returns the mesh and the curve
+function sleeved(parent, src, r, mat, { tubular = 180, radial = 20, cell = 0.5, kind = 'centripetal' } = {}) {
+  const c = Array.isArray(src) ? new THREE.CatmullRomCurve3(src.map(p => new THREE.Vector3(...p)), false, kind) : src;
+  return { mesh: add(sleeveUV(new THREE.TubeGeometry(c, tubular, r, radial, false), c.getLength(), r, cell), mat, 0, 0, 0, parent), curve: c };
+}
+// a flat decal: the geometry's x axis → ax, its y axis → ay, so it faces ax × ay; added at (x, y, z) under parent
+function flatDecal(geo, mat, x, y, z, ax, ay, parent) {
+  const X = new THREE.Vector3(...ax).normalize(), Y = new THREE.Vector3(...ay).normalize();
+  geo.applyMatrix4(new THREE.Matrix4().makeBasis(X, Y, new THREE.Vector3().crossVectors(X, Y)));
+  return add(geo, mat, x, y, z, parent);
+}
+// a fan: holder (local z = airflow, mapped to +y) → dynamic rotor → crisp blades, blur veil and spinner, in that order.
+// holder(h) dresses the holder before the rotor exists; rotor(r) builds the blades and hub and returns { crisp, mat }.
+// speed is a function so Math.random is drawn where the hand-built fans drew it.
+function fanRotor(parent, { at, holder, rotor, blade, blades, mirror = false, speed, kind }) {
+  const h = new THREE.Group(); parent.add(h);
+  h.rotation.x = -Math.PI / 2; h.position.set(at[0], at[1], at[2]);
+  if (holder) holder(h);
+  const r = new THREE.Group(); r.userData.dynamic = true; h.add(r);
+  const { crisp, mat } = rotor(r);
+  fanBlur(r, [crisp], mat, blade, blades, mirror);
+  spinner(r, speed(), kind, blades);
+  return { holder: h, rotor: r, crisp };
+}
+// an alpha-tested print or decal: crisp edges with alpha-to-coverage, and it casts and takes no shadow
+function decalMat(p) { const m = std({ alphaTest: 0.5, alphaToCoverage: true, ...p }); m.userData.noShadow = true; return m; }
+// the tightest bend radius along a curve, from the circumcircle of each three arc-length-spaced samples
+function tightestBend(curve, n = 96) {
+  const p = curve.getSpacedPoints(n), u = new THREE.Vector3(), v = new THREE.Vector3();
+  let r = Infinity;
+  for (let i = 1; i < n; i++) {
+    const a = p[i - 1], b = p[i], c = p[i + 1];
+    const area2 = u.subVectors(b, a).cross(v.subVectors(c, a)).length();   // twice the triangle's area
+    if (area2 > 1e-9) r = Math.min(r, a.distanceTo(b) * b.distanceTo(c) * a.distanceTo(c) / (2 * area2));
+  }
+  return r;
+}
+// the smallest radius of curvature of the cubic Bézier whose control points a-b-c-d are the 12 numbers at q[o..o+11] (xyz each),
+// sampled at 17 parameters. A cheap stand-in for tightestBend: allocation-free, and it stops as soon as a sample is at or
+// below `limit` (the caller only wants to know whether the radius beats it), so the value is exact only when it exceeds `limit`.
+const CR_T = [0, 16, 8, 4, 12, 2, 6, 10, 14, 1, 3, 5, 7, 9, 11, 13, 15];   // ends and middle first: where a tight bend usually is
+function cubicRadius(q, o, limit = -Infinity) {
+  const ax = q[o], ay = q[o + 1], az = q[o + 2], bx = q[o + 3], by = q[o + 4], bz = q[o + 5], cx = q[o + 6], cy = q[o + 7], cz = q[o + 8], dx = q[o + 9], dy = q[o + 10], dz = q[o + 11];
+  const b0 = bx - ax, b1 = by - ay, b2 = bz - az, c0 = cx - bx, c1 = cy - by, c2 = cz - bz, d0 = dx - cx, d1 = dy - cy, d2 = dz - cz;   // first differences
+  const e0 = c0 - b0, e1 = c1 - b1, e2 = c2 - b2, f0 = d0 - c0, f1 = d1 - c1, f2 = d2 - c2;                                           // second differences
+  let r = Infinity;
+  for (let k = 0; k < 17; k++) {
+    const t = CR_T[k] / 16, u = 1 - t, A = 3 * u * u, B = 6 * u * t, C = 3 * t * t, E = 6 * u, F = 6 * t;
+    const v0 = A * b0 + B * c0 + C * d0, v1 = A * b1 + B * c1 + C * d1, v2 = A * b2 + B * c2 + C * d2;   // B'(t)
+    const w0 = E * e0 + F * f0, w1 = E * e1 + F * f1, w2 = E * e2 + F * f2;                              // B''(t)
+    const x = v1 * w2 - v2 * w1, y = v2 * w0 - v0 * w2, z = v0 * w1 - v1 * w0;
+    const cr2 = x * x + y * y + z * z;
+    if (cr2 > 1e-18) {
+      const sp2 = v0 * v0 + v1 * v1 + v2 * v2, rk = sp2 * Math.sqrt(sp2 / cr2);   // |B'|³ / |B' × B''|
+      if (rk < r) { r = rk; if (r <= limit) return r; }
+    }
+  }
+  return r;
+}
+// a hose route: outlet → one waypoint L → port, as two cubic Béziers that share a tangent at L. L lies on or above
+// the lane plane (laneY to laneY + rise) and within x and z, with any heading and climb there; the first leg
+// leaves along d0 and the second arrives travelling along d1. The search is a coarse grid over L and the tangent, then a
+// pattern search that refines the best; it keeps the route with the widest tightest bend that passes ok(path), and throws
+// if no route passes or that bend is under minBend. Two bend measures, on purpose: candidates are pre-pruned with the cheap
+// 17-sample cubicRadius, but a route is only accepted (and ranked) by tightestBend on the built path, the same measure
+// the hoses check applies, so the pre-prune can only skip a candidate, never mis-rank one.
+// Results are memoised by `key` (a string naming everything ok() depends on besides its argument) plus the numeric inputs,
+// so a remount or swap with the same inputs costs nothing. Without a key nothing is cached.
+const routeTimings = [];   // ms each laneRoute call took (about 0 for a memo hit), read by tools through __gt.timings
+const routeMemo = new Map();
+function laneRoute(o) {
+  const t0 = performance.now();
+  const mk = o.key == null ? null : JSON.stringify([o.key, o.p0, o.d0, o.p1, o.d1, o.laneY, o.x, o.z, o.minBend, o.n, o.rise]);
+  try {
+    if (mk != null && routeMemo.has(mk)) return routeMemo.get(mk);
+    const best = laneSearch(o);
+    if (mk != null) routeMemo.set(mk, best);
+    return best;
+  } finally { routeTimings.push(performance.now() - t0); }
+}
+function laneSearch({ p0, d0, p1, d1, laneY, x: [x0, x1], z: [z0, z1], minBend, ok = () => true, n = 6, rise = 9 }) {
+  const D0 = new THREE.Vector3(...d0).normalize(), D1 = new THREE.Vector3(...d1).normalize();
+  const cp = new Float64Array(21);   // the two legs' control points, c0..c6 (xyz each); c3 is L, shared
+  let best = null;
+  // s = [Lx, Ly, Lz, heading, climb, ka, kb]
+  const route = s => {
+    const co = Math.cos(s[4]), tx = Math.cos(s[3]) * co, ty = Math.sin(s[4]), tz = Math.sin(s[3]) * co;
+    const dx = p0[0] - s[0], dy = p0[1] - s[1], dz = p0[2] - s[2], ex = s[0] - p1[0], ey = s[1] - p1[1], ez = s[2] - p1[2];
+    const a = Math.hypot(dx, dy, dz) / 3 * s[5], b = Math.hypot(ex, ey, ez) / 3 * s[6];
+    cp[0] = p0[0]; cp[1] = p0[1]; cp[2] = p0[2];
+    cp[3] = p0[0] + D0.x * a; cp[4] = p0[1] + D0.y * a; cp[5] = p0[2] + D0.z * a;
+    cp[6] = s[0] + tx * -a; cp[7] = s[1] + ty * -a; cp[8] = s[2] + tz * -a;
+    cp[9] = s[0]; cp[10] = s[1]; cp[11] = s[2];
+    cp[12] = s[0] + tx * b; cp[13] = s[1] + ty * b; cp[14] = s[2] + tz * b;
+    cp[15] = p1[0] + D1.x * -b; cp[16] = p1[1] + D1.y * -b; cp[17] = p1[2] + D1.z * -b;
+    cp[18] = p1[0]; cp[19] = p1[1]; cp[20] = p1[2];
+  };
+  const tryRoute = s => {
+    route(s);
+    if (best && (cubicRadius(cp, 0, best.bend) <= best.bend || cubicRadius(cp, 9, best.bend) <= best.bend)) return false;
+    const c = [0, 1, 2, 3, 4, 5, 6].map(i => new THREE.Vector3(cp[3 * i], cp[3 * i + 1], cp[3 * i + 2]));
+    const path = new THREE.CurvePath();
+    path.add(new THREE.CubicBezierCurve3(c[0], c[1], c[2], c[3])); path.add(new THREE.CubicBezierCurve3(c[3], c[4], c[5], c[6]));
+    if (!ok(path)) return false;   // the rules first: most candidates that pass the pre-prune still fail one
+    const bend = tightestBend(path);
+    if (best && bend <= best.bend) return false;
+    best = { path, bend, L: c[3], s };
+    return true;
+  };
+  for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) for (const dy of [0, rise / 3, rise * 2 / 3, rise]) for (const climb of [0, 0.4, 0.8, 1.1])
+    for (let h = 0; h < 16; h++) for (const ka of [0.8, 1.2]) for (const kb of [0.8, 1.2])
+      tryRoute([x0 + (x1 - x0) * i / n, laneY + dy, z0 + (z1 - z0) * j / n, h * Math.PI / 8, climb, ka, kb]);
+  if (best) {
+    const lo = [x0, laneY, z0, -Infinity, -1.4, 0.4, 0.4], hi = [x1, laneY + rise, z1, Infinity, 1.4, 2.2, 2.2];
+    let step = [(x1 - x0) / n, rise / 3, (z1 - z0) / n, 0.2, 0.2, 0.2, 0.2];
+    for (let pass = 0; pass < 7; pass++, step = step.map(v => v / 2))
+      for (let again = true, guard = 0; again && guard < 12; guard++) {
+        again = false;
+        for (let k = 0; k < 7; k++) for (const sg of [1, -1]) {
+          const s = best.s.slice(); s[k] = Math.min(hi[k], Math.max(lo[k], s[k] + sg * step[k]));
+          if (s[k] !== best.s[k] && tryRoute(s)) again = true;
+        }
+      }
+  }
+  if (!best) throw new Error('laneRoute: no route passes the clearance rules');
+  if (best.bend < minBend) throw new Error(`laneRoute: tightest bend ${best.bend.toFixed(2)} cm, need ${minBend}`);
+  return best;
+}
+// what a part builder may use; shared materials (M), finish presets (POWDER, BLAST, CAST, MOLDED, BRUSH) and TAU are read directly
+const kit = {
+  add, box, cyl, roundedRect, circle, boxUV, bladeGeometry, radial, spinner, fanBlur, sleeveUV,
+  std, phys, tag, micro, canvasTex, dataTex, spacedText, rgbMat, rgbEntry, statusLed, finishSet, onFinish,
+  filletPoly, fitText, ribbon, flatDecal, sleeved, fanRotor, decalMat, tightestBend, laneRoute,
+  part(name, spec) { const g = new THREE.Group(); g.userData.part = { name, spec }; return g; },   // detached: the runtime attaches it
+  own,                                          // for a material or texture made with `new THREE.*` directly
+  onDispose(fn) { BUILD.onDispose.push(fn); },  // undo module state the part set (the LCD globals)
+  onAttach(fn) { BUILD.onAttach.push(fn); },    // set module state once the part is attached (after a swap disposed the old part)
+};
+
 // ---------- chassis ----------
 const W = 28.5, D = 47, H = 46, xL = -W / 2, xR = W / 2, zB = -D / 2, zF = D / 2;
 const XT = 4.0; // motherboard tray, front face
@@ -955,6 +1184,291 @@ for (const [, , z] of INTAKE_FANS) {
   box(0.05, 0.22, 1.8, M.plastic, XT - 0.27, 1.15, z - 3.4, chassis);
 }
 
+
+// ---------- part engine: mounts, specs and runtime ----------
+const pickables = [];             // the meshes a click can pick; disposePart and the bake section below fill and trim it
+const envMats = new Set();        // every material that takes the environment map
+// Swappable parts are built by pure builders from plain specs (PART_SPECS) against named mounts (MOUNTS). buildPart records
+// what a builder creates and registers, so the handle's dispose() can take exactly that back out. See glass-tower/PARTS.md.
+// named places a part fits, in root space (cm), derived from the build layout; anchors[family] = what a mounted part publishes
+const MOUNTS = {
+  pcie1: { ...PCIE1, x: BX, yTop: boardY(PCIE1.v0), yMid: boardY((PCIE1.v0 + PCIE1.v1) / 2), yBottom: boardY(PCIE1.v1),
+    z0: boardZ(PCIE1.u0), z1: boardZ(PCIE1.u1) },                // yMid and z0/z1 are the PCIe edge's own expressions
+  gpuBay: { ...GPU_BAY, slotPitch: 2.032, slots: 2 },            // the rear panel's slot pitch; the chassis models 2 open slots
+  socket: { ...SOCKET, x: BX, y: boardY(SOCKET.v), z: boardZ(SOCKET.u) },
+  radBay: { ...RAD_BAY },
+  dimm: DIMM_U.map(u => ({ u, x: BX - 0.8 + 0.35, y: boardY(8.5), z: boardZ(u) })),   // a module's centre, as the RAM section places it
+  grommets: GROMMETS.map(([y, z, h, w]) => ({ x: XT, y, z, h, w })),
+  fans: { intake: INTAKE_FANS.map(p => [...p]), exhaust: [...EXHAUST_FAN] },
+  glass: { innerX: xL + 0.44 },                                   // the left glass's inner face, frit bands included
+  board: { faceX: BX, top: BTOP, rear: BREAR, w: BW, h: BH },
+  psuBay: { ...PSU_BAY },
+  anchors: {},
+};
+const PART_SPECS = {};            // id → plain spec; { extends: id } merges shallowly over another spec
+// a RAM kit's SKU data; its tooltip text is built from the same fields the label draws, so the two cannot disagree
+const ramSku = (white, k) => { if (!k) { k = white; white = false; } return { ...k, spec: (white ? 'Matte white · ' : '') + k.ddr + ' ' + k.cl + ' · ' + k.v + ' · AMD EXPO / XMP 3.0 · ' + k.pn }; };
+Object.assign(PART_SPECS, {
+  rtx5080fe: { family: 'gpu', style: 'fe', name: 'NVIDIA GeForce RTX 5080 Founders Edition',
+    spec: '16 GB GDDR7, 256-bit · 10,752 CUDA cores · 2.62 GHz boost · 360 W · 304 × 137 × 40 mm, dual-slot · fans stop at idle',
+    size: { length: 30.4, height: 13.7, thickness: 4.0 }, slots: 2, bracketSlots: 2,
+    wordmark: 'GEFORCE RTX', model: '5080',
+    fans: { count: 2, pitch: 8.95, radius: 5.62, blades: 7, speed: [110, 10],
+      blade: { rh: 1.95, rt: 5.56, c0: 2.1, c1: 4.0, p0: 0.8, p1: 0.4, sweep: 0.7, camber: 0.08, thick: 0.12 } },
+    socket: { s: 3.75, t: 5.85 },
+    bracket: { portY: 21.4, ports: [[-8.6, 1], [-6.4, 1], [-4.2, 1], [-1.9, 0]] } },
+  rtx5090fe: { extends: 'rtx5080fe', name: 'NVIDIA GeForce RTX 5090 Founders Edition', model: '5090',
+    spec: '32 GB GDDR7, 512-bit · 21,760 CUDA cores · 2.41 GHz boost · 575 W · 304 × 137 × 40 mm, dual-slot · fans stop at idle' },
+  rtx5070ti: { family: 'gpu', style: 'axial', name: 'NVIDIA GeForce RTX 5070 Ti',
+    spec: '16 GB GDDR7, 256-bit · 8,960 CUDA cores · 2.45 GHz boost · 300 W · partner card, 304 × 126 × 50 mm, 2.5-slot cooler',
+    size: { length: 30.4, height: 12.6, thickness: 5.0 }, slots: 2, bracketSlots: 2, print: 'GEFORCE RTX',
+    fans: { count: 3, pitch: 9.9, radius: 4.35, blades: 9, speed: [100, 12], ring: true,
+      blade: { rh: 1.5, rt: 4.3, c0: 1.7, c1: 3.1, p0: 0.75, p1: 0.4, sweep: 0.8, camber: 0.08, thick: 0.11 } },
+    socket: { s: 6.0, side: 'edge' },
+    bracket: { portY: 21.4, ports: [[-8.6, 1], [-6.4, 1], [-4.2, 1], [-1.9, 0]] } },
+  type5: { family: 'gpuCable', style: 'ribbon', name: 'Corsair Type 5 12V-2x6 cable',
+    spec: 'Native 16-pin (12+4) from the RM1000x SHIFT · 600 W · PVC jacketed',
+    ribbon: { cols: 6, rows: 2, sp: 0.32, r: 0.13 }, ups: [[0, 1, 0], [0, 1, 0], [0, 0.5, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]] },
+  krakenelite360: { family: 'aio', style: 'kraken', head: 'lcd', name: 'NZXT Kraken Elite 360 RGB',
+    spec: 'AIO pump · 2.72" 640 × 640 IPS LCD, RGB ring, Turbine pump 1,200–2,800 RPM · cooling the Ryzen 7 9800X3D',
+    tubing: { name: 'Kraken Elite tubing', spec: '2 × 420 mm CIIR rubber hoses, PET braided sleeve', r: 0.78 },
+    radiator: { name: 'Kraken Elite 360 radiator', spec: '401 × 120 × 27 mm aluminium, cable hub with a single breakout cable' },
+    fanPart: { name: 'NZXT F360 RGB Core', spec: 'Single-frame 3 × 120 mm fans, 500–2,400 RPM, 75 CFM, 8 ARGB LEDs per hub' },
+    fans: { blades: 9, speed: [84, 8], dir: -1 } },
+  kraken360: { extends: 'krakenelite360', head: 'ring', name: 'NZXT Kraken 360 RGB',
+    spec: 'AIO pump · RGB ring around a gloss-black cap, no LCD · cooling the Ryzen 7 9800X3D',
+    tubing: { name: 'Kraken tubing', spec: '2 × 420 mm CIIR rubber hoses, PET braided sleeve', r: 0.78 },
+    radiator: { name: 'Kraken 360 radiator', spec: '401 × 120 × 27 mm aluminium, cable hub with a single breakout cable' } },
+  tz5neo: { family: 'ram', style: 'trident', name: 'G.SKILL Trident Z5 Neo RGB 64 GB (2 × 32 GB)',
+    // SKU data: the black kit, and its white twin for the Snow finish; `label` is the product label's capacity line
+    kits: {
+      black: ramSku({ pn: 'F5-6000J3040G32GX2-TZ5NR', ddr: 'DDR5-6000', v: '1.40 V', cl: 'CL30-40-40-96', label: '32Gx2  XMP 3.0 + EXPO' }),
+      snow: ramSku(true, { pn: 'F5-6000J3036G32GX2-TZ5NRW', ddr: 'DDR5-6000', v: '1.40 V', cl: 'CL30-36-36-96', label: '32Gx2  XMP 3.0 + EXPO' }),
+    },
+    slots: [1, 3], phases: [0.31, 0.35] },
+  // the store's memory options, by option id: m64 is the default kit; the others change the kit's SKU data and label
+  m64: { extends: 'tz5neo' },
+  m32: { extends: 'tz5neo', name: 'G.SKILL Trident Z5 Neo RGB 32 GB (2 × 16 GB)',
+    kits: {
+      black: ramSku({ pn: 'F5-6000J3038F16GX2-TZ5NR', ddr: 'DDR5-6000', v: '1.35 V', cl: 'CL30-38-38-96', label: '16Gx2  XMP 3.0 + EXPO' }),
+      snow: ramSku(true, { pn: 'F5-6000J3038F16GX2-TZ5NRW', ddr: 'DDR5-6000', v: '1.35 V', cl: 'CL30-38-38-96', label: '16Gx2  XMP 3.0 + EXPO' }),
+    } },
+  m96: { extends: 'tz5neo', name: 'G.SKILL Trident Z5 Neo RGB 96 GB (2 × 48 GB)',
+    kits: {
+      black: ramSku({ pn: 'F5-6000J2836F48GX2-TZ5NR', ddr: 'DDR5-6000', v: '1.35 V', cl: 'CL28-36-36-96', label: '48Gx2  XMP 3.0 + EXPO' }),
+      snow: ramSku(true, { pn: 'F5-6000J2836F48GX2-TZ5NRW', ddr: 'DDR5-6000', v: '1.35 V', cl: 'CL28-36-36-96', label: '48Gx2  XMP 3.0 + EXPO' }),
+    } },
+  kraken: { family: 'hoses', style: 'sleeved', minBend: 6, minBendFront: 3.3, clear: 0.8, collar: { r: 0.86, len: 0.4 } },
+});
+const BUILDERS = {};              // family → style → builder(spec, mounts, kit); each section registers its own
+const DEPENDS = {};               // family → families rebuilt against its new anchors when it is swapped
+const DEFAULTS = {};              // family → the spec id mounted when ?parts= names none
+Object.assign(DEFAULTS, { gpu: 'rtx5080fe', gpuCable: 'type5', aio: 'krakenelite360', hoses: 'kraken', ram: 'tz5neo' });
+const mounted = {};               // family → handle
+const START = {};                 // ?parts=gpu:rtx5070ti,aio:kraken360
+const FAMILIES = ['gpu', 'aio', 'ram'];
+for (const kv of (new URLSearchParams(location.search).get('parts') || '').split(',')) {
+  const [f, id] = kv.split(':');
+  if (!f || !id) continue;
+  if (FAMILIES.includes(f)) START[f] = id; else console.warn(`?parts=: ${f} is not a part family (${FAMILIES.join(', ')})`);
+}
+const glowList = [];              // the lights section's `glow` is this same array, so a part may own a RectAreaLight
+const LISTS = () => ({ spinners, rgbEntries, statusLeds, finishHooks, finishMats, canvasTextures, glow: glowList });
+function resolveSpec(id, seen = new Set()) {
+  if (!Object.hasOwn(PART_SPECS, id)) throw new Error('unknown part spec ' + id);
+  if (seen.has(id)) throw new Error('part spec extends cycle: ' + [...seen, id].join(' → '));
+  seen.add(id);
+  const s = PART_SPECS[id];
+  const r = s.extends ? { ...resolveSpec(s.extends, seen), ...s } : { ...s };
+  delete r.extends; r.id = id;
+  return r;
+}
+function startId(family) {
+  const id = START[family];
+  if (id && Object.hasOwn(PART_SPECS, id) && resolveSpec(id).family === family) return id;   // resolved: an extending spec inherits its family
+  if (!DEFAULTS[family]) throw new Error('no default part for family ' + family);
+  if (id) console.warn(`?parts=: ${id} is not a ${family} spec; mounting ${DEFAULTS[family]}`);
+  return DEFAULTS[family];
+}
+// frees the materials and textures a part owned, and forgets its materials in the env and micro registries
+function freeOwned(set) {
+  for (const x of set) { if (x.isMaterial) { envMats.delete(x); microMats.delete(x); } x.dispose(); }
+}
+function buildPart(family, id) {
+  const spec = resolveSpec(id);
+  if (spec.family !== family) throw new Error(`${id} is a ${spec.family} spec, not ${family}`);
+  const builder = BUILDERS[family]?.[spec.style];
+  if (!builder) throw new Error(`no ${family} builder for style ${spec.style}`);
+  const lists = LISTS(), before = {};
+  for (const k in lists) before[k] = lists[k].length;
+  const prev = BUILD;
+  BUILD = { owned: new Set(), onDispose: [], onAttach: [] };
+  let out, rec;
+  try { out = builder(spec, MOUNTS, kit); }
+  catch (e) {
+    // a half-done build: take back what it registered and free what it made. Its group was never attached, and its
+    // onDispose hooks are skipped because the module state they undo is only set by onAttach.
+    for (const k in lists) lists[k].splice(before[k]);
+    freeOwned(BUILD.owned);
+    throw e;
+  } finally { rec = BUILD; BUILD = prev; }
+  const entries = {};
+  for (const k in lists) entries[k] = lists[k].slice(before[k]);
+  const h = { family, id, spec, group: out.group, focus: out.focus ?? null, anchors: out.anchors ?? {}, entries,
+    owned: rec.owned, onDispose: rec.onDispose, onAttach: rec.onAttach, attached: false };
+  h.dispose = () => disposePart(h);
+  return h;
+}
+// runs a part's onAttach hooks and marks it attached; a hook that throws is logged and does not stop the caller (a swap must
+// still reach invalidate() and embedNotify()). onDispose hooks run only for an attached part.
+function attachPart(h) {
+  h.attached = true;
+  for (const fn of h.onAttach) { try { fn(); } catch (e) { console.error(`part ${h.id}: onAttach hook failed:`, e); } }
+}
+function disposePart(h) {
+  const lists = LISTS();
+  for (const k in h.entries) for (const e of h.entries[k]) { const i = lists[k].indexOf(e); if (i >= 0) lists[k].splice(i, 1); }
+  h.group.traverse(o => {
+    const i = pickables.indexOf(o);
+    if (i >= 0) pickables.splice(i, 1);
+    if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
+  });
+  freeOwned(h.owned);
+  if (h.attached) for (const fn of h.onDispose) fn();   // module state is only set by onAttach: a part that never attached has none to undo
+  h.group.removeFromParent();
+}
+function registries() {
+  const L = LISTS(), r = {};
+  for (const k in L) r[k] = L[k].length;
+  return { ...r, pickables: pickables.length, envMats: envMats.size, microMats: microMats.size,
+    geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures };
+}
+// debug only: a throwaway part that touches every registry (glow through a stand-in entry), is baked and prepared like a
+// swapped part, then disposed; and a builder that registers, then throws (tools/parts.js --check registries)
+function ownershipSelfTest() {
+  let curves = 0;
+  BUILDERS.__probe = {
+    probe: (spec, mounts, k) => {
+      const g = k.part('probe', ''), rotor = new THREE.Group(); g.add(rotor);
+      k.box(1, 1, 1, k.std({ color: 0xff0000 }), 0, 0, 0, g);
+      k.box(1, 1, 1, k.micro(k.std({ color: 0x00ff00 }), MOLDED), 2, 0, 0, g);
+      k.rgbMat(1, 0); k.statusLed(k.std({}), 1, 'gpu');
+      k.finishSet(k.std({}), { black: { color: 0x000000 }, snow: { color: 0xffffff } });
+      k.onFinish(() => {}); k.canvasTex(4, 4, () => {});
+      k.spinner(rotor, 1, 'case', 3);
+      glowList.push({ light: null, base: 0, phase: 0 });   // stands in for a RectAreaLight a future part may own
+      const path = new THREE.CurvePath();
+      path.add(new THREE.LineCurve3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 2, 0)));
+      for (const src of [[[0, 0, 0], [1, 1, 0], [2, 0, 0]], path]) if (k.sleeved(g, src, 0.1, k.std({})).curve) curves++;
+      return { group: g };
+    },
+    throws: (spec, mounts, k) => {
+      k.rgbMat(1, 0); k.spinner(new THREE.Group(), 1, 'case', 3); k.micro(k.std({}), MOLDED); k.canvasTex(4, 4, () => {});
+      glowList.push({ light: null, base: 0, phase: 0 });
+      throw new Error('probe: thrown halfway on purpose');
+    },
+  };
+  PART_SPECS.__probe = { family: '__probe', style: 'probe', name: 'probe', spec: '' };
+  PART_SPECS.__throws = { family: '__probe', style: 'throws', name: 'throws', spec: '' };
+  try {
+    const before = registries(), h = buildPart('__probe', '__probe');
+    bakeTree(h.group, h.entries.spinners);
+    const prep = prepMeshes(h.group, h.entries.spinners);
+    pickables.push(...prep.picks);
+    const during = registries();
+    h.dispose();
+    const after = registries();
+    let threw = false;
+    try { buildPart('__probe', '__throws'); } catch { threw = true; }
+    return { before, during, after, afterThrow: registries(), threw, curves, owned: h.owned.size };
+  } finally { delete BUILDERS.__probe; delete PART_SPECS.__probe; delete PART_SPECS.__throws; }
+}
+// swap one family: build the new part and its dependents detached, bake and warm them (compileAsync, so the first frame
+// that shows them doesn't stall on shader compiles), then trade old for new in one synchronous step: no blank frame
+async function swapPart(family, id) {
+  const old = mounted[family], deps = (DEPENDS[family] || []).filter(d => mounted[d]);
+  const saved = { ...MOUNTS.anchors }, fresh = [];
+  try {
+    const h = buildPart(family, id); fresh.push(h); MOUNTS.anchors[family] = h.anchors;
+    for (const d of deps) { const x = buildPart(d, mounted[d].id); fresh.push(x); MOUNTS.anchors[d] = x.anchors; }
+    // bake box-projects UVs in world space, so stage the fresh groups under a detached copy of root's transform (root stands
+    // 1.6 cm up on its feet): swapped-in parts get the same UVs as the load-time ones. root.add reparents them below.
+    const stage = new THREE.Group();
+    stage.position.copy(root.position); stage.quaternion.copy(root.quaternion); stage.scale.copy(root.scale);
+    for (const x of fresh) stage.add(x.group);
+    stage.updateMatrixWorld(true);
+    for (const x of fresh) {
+      bakeTree(x.group, x.entries.spinners);
+      x.prep = prepMeshes(x.group, x.entries.spinners);
+      applyEnv(x.prep.mats);
+      for (const m of x.prep.mats) for (const k of ['map', 'emissiveMap', 'alphaMap', 'normalMap', 'roughnessMap', 'metalnessMap'])
+        if (m[k]) renderer.initTexture(m[k]);
+      await renderer.compileAsync(x.group, camera, scene);
+    }
+  } catch (e) {
+    for (const x of fresh) x.dispose();
+    Object.assign(MOUNTS.anchors, saved);
+    throw e;
+  }
+  old?.dispose(); for (const d of deps) mounted[d].dispose();
+  for (const x of fresh) { root.add(x.group); pickables.push(...x.prep.picks); mounted[x.family] = x; }
+  for (const x of fresh) attachPart(x);   // module state (the LCD globals), after the old parts' onDispose ran
+  if (family === 'gpu') {
+    GPU_FOCUS = fresh[0].focus;
+    if (gpuBtn.getAttribute('aria-pressed') === 'true') flyTo(GPU_FOCUS.clone().addScaledVector(GPU_DIR, homeDistance() * 0.36), GPU_FOCUS);
+  }
+  invalidate();
+  if (embedNotify) embedNotify();   // the store hears about every swap that lands, with the new parts
+}
+const SWAPPABLE = ['gpu', 'aio', 'ram'];
+// two ids that resolve to the same spec (the store's m64 is the default kit under another id) need no rebuild: the mounted part
+// just takes the id it was asked for, so parts.ids() does not depend on history
+const sameSpec = (a, b) => { const j = id => { const { id: _, ...r } = resolveSpec(id); return JSON.stringify(r); }; return j(a) === j(b); };
+const adoptIds = () => { for (const k of SWAPPABLE) if (wanted[k] && mounted[k] && mounted[k].id !== wanted[k] && sameSpec(wanted[k], mounted[k].id)) mounted[k].id = wanted[k]; };
+const wanted = {};
+let swapping = null;
+// ask for parts by id ({ gpu: 'rtx5070ti' }); swaps run one at a time and coalesce to the latest id per family
+function want(map) {
+  for (const [f, id] of Object.entries(map || {})) {
+    if (SWAPPABLE.includes(f) && Object.hasOwn(PART_SPECS, id) && resolveSpec(id).family === f) wanted[f] = id;   // resolved: an extending spec inherits its family
+    else console.warn(`parts: ${id} is not a ${f} spec; ignored`);
+  }
+  adoptIds();   // synchronously, so the state the embed posts right after this call already names the id asked for
+  // `await null` first: with nothing to swap, the body would otherwise finish (and clear `swapping`) before the
+  // assignment below stores the promise, leaving a settled promise in `swapping` that later calls would return unrun
+  if (!swapping) swapping = (async () => {
+    await null;
+    try {
+      for (let f; (adoptIds(), f = SWAPPABLE.find(k => wanted[k] && wanted[k] !== mounted[k]?.id));) {
+        const id = wanted[f];
+        try { await swapPart(f, id); } catch (e) { console.error(`part swap ${f} → ${id} failed:`, e); if (wanted[f] === id) delete wanted[f]; }
+      }
+    } finally { swapping = null; }
+  })();
+  return swapping;
+}
+const parts = {
+  want,
+  mounted,
+  swap: (family, id) => want({ [family]: id }),
+  // build at the caller's position in the file (load order is render and spinner order) and attach; the global bake runs later
+  mount(family, id = startId(family)) {
+    const h = buildPart(family, id);
+    root.add(h.group); MOUNTS.anchors[family] = h.anchors; mounted[family] = h;
+    attachPart(h);
+    return h;
+  },
+  unmount(family) {
+    const h = mounted[family];
+    if (!h) return;
+    h.dispose(); delete mounted[family]; delete MOUNTS.anchors[family]; invalidate();
+  },
+  ids: () => Object.fromEntries(Object.keys(mounted).map(f => [f, mounted[f].id])),
+  focus: f => mounted[f]?.focus?.toArray() ?? null,
+  group: f => mounted[f]?.group ?? null,
+  anchors: f => MOUNTS.anchors[f] ?? null,
+  selfTest: ownershipSelfTest,
+};
 
 // ---------- glass (left panel slides off) ----------
 const glassMatL = { tint: M.glassTint.clone(), refl: M.glassRefl.clone(), edge: M.glassEdge.clone(), frit: M.frit.clone() };
@@ -1706,161 +2220,157 @@ function rmRibbon(pts, w, tip = 0) {
   return new THREE.ShapeGeometry(new THREE.Shape([...A, ...B]));
 }
 
-// SKU data: the black kit, and its white twin for the Snow finish
-const RAM_KIT = {
-  black: { pn: 'F5-6000J3040G32GX2-TZ5NR', cl: 'CL30-40-40-96', spec: 'DDR5-6000 CL30-40-40-96 · 1.40 V · AMD EXPO / XMP 3.0 · F5-6000J3040G32GX2-TZ5NR' },
-  snow: { pn: 'F5-6000J3036G32GX2-TZ5NRW', cl: 'CL30-36-36-96', spec: 'Matte white · DDR5-6000 CL30-36-36-96 · 1.40 V · AMD EXPO / XMP 3.0 · F5-6000J3036G32GX2-TZ5NRW' },
-};
-let ramKit = RAM_KIT.black;
+function buildRam(spec, mounts, kit) {
+  let ramKit = spec.kits.black;
 
-// TRIDENT Z5 / nEO RGB wordmark on the brushed band; canvas spans X 84..125 mm, Z 24.5..15.5 mm
-const ramLogo = canvasTex(1024, 228, (g, w, h) => {
-  const px = mm => (mm - 84) * w / 41, py = mm => (24.5 - mm) * h / 9, kv = h / 9, sl = Math.tan(15 * Math.PI / 180);
-  // slanted run fitted between x0..x1 mm, cap height in mm, baseline at z mm
-  const run = (txt, x0, x1, z, cap, col, ls, sw = 0) => {
+  // TRIDENT Z5 / nEO RGB wordmark on the brushed band; canvas spans X 84..125 mm, Z 24.5..15.5 mm
+  const ramLogo = canvasTex(1024, 228, (g, w, h) => {
+    const px = mm => (mm - 84) * w / 41, py = mm => (24.5 - mm) * h / 9, kv = h / 9, sl = Math.tan(15 * Math.PI / 180);
+    // slanted run fitted between x0..x1 mm, cap height in mm, baseline at z mm
+    const run = (txt, x0, x1, z, cap, col, ls, sw = 0) => {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.font = '800 100px Archivo, Arial, sans-serif';
+      try { g.fontStretch = 'expanded'; g.letterSpacing = ls + 'px'; } catch (e) { /* older canvas */ }
+      const wd = g.measureText(txt).width, asc = g.measureText('H').actualBoundingBoxAscent || 72;
+      const sy = cap * kv / asc, sx = (px(x1) - px(x0) - sl * cap * kv) / wd;
+      g.fillStyle = col; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+      g.setTransform(sx, 0, -sl * sy, sy, px(x0), py(z));
+      g.fillText(txt, 0, 0);
+      if (sw) { g.strokeStyle = col; g.lineWidth = sw; g.lineJoin = 'round'; g.strokeText(txt, 0, 0); }   // heavier than the 800 the font ships
+    };
+    run('TRIDENT', 85.5, 105.4, 19.5, 2.45, '#f5f5f5', 4, 5);
+    run('Z', 106.3, 113.6, 19.5, 4.1, '#e02722', 0);
+    run('5', 114.3, 120.2, 19.5, 2.9, '#f5f5f5', 0);
+    run('nEO RGB', 106.5, 123.5, 16.2, 2.1, '#f5f5f5', 3, 5);
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.font = '800 100px Archivo, Arial, sans-serif';
-    try { g.fontStretch = 'expanded'; g.letterSpacing = ls + 'px'; } catch (e) { /* older canvas */ }
-    const wd = g.measureText(txt).width, asc = g.measureText('H').actualBoundingBoxAscent || 72;
-    const sy = cap * kv / asc, sx = (px(x1) - px(x0) - sl * cap * kv) / wd;
-    g.fillStyle = col; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
-    g.setTransform(sx, 0, -sl * sy, sy, px(x0), py(z));
-    g.fillText(txt, 0, 0);
-    if (sw) { g.strokeStyle = col; g.lineWidth = sw; g.lineJoin = 'round'; g.strokeText(txt, 0, 0); }   // heavier than the 800 the font ships
+    try { g.letterSpacing = '0px'; } catch (e) { /* older canvas */ }
+  });
+  // small G.SKILL print on top of each light bar
+  const ramPrint = canvasTex(256, 48, (g, w, h) => {
+    g.fillStyle = '#4d525a'; spacedText(g, 'G.SKILL', w / 2, h / 2 + 1, '700 34px Archivo, Arial, sans-serif', 4, 1.2);
+  });
+  // product label on the back face: hologram square, part number, timings, barcode
+  const ramLabel = canvasTex(512, 128, (g, w, h) => {
+    g.fillStyle = '#e6e7ea'; g.fillRect(0, 0, w, h);
+    const hg = g.createLinearGradient(8, 8, 120, 120);
+    ['#b8c6da', '#e2cfe9', '#c4e6d6', '#ded3b6', '#b8c6da'].forEach((c, i) => hg.addColorStop(i / 4, c));
+    g.fillStyle = hg; g.fillRect(8, 8, 112, 112);
+    g.fillStyle = '#4a4f58'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '800 22px Archivo, Arial, sans-serif'; g.fillText('G.SKILL', 64, 56);
+    g.font = '500 14px "IBM Plex Mono", monospace'; g.fillText('2344', 64, 84);
+    g.fillStyle = '#111214'; g.textAlign = 'left';
+    g.font = '600 18px "IBM Plex Mono", monospace'; g.fillText(ramKit.pn, 132, 18);
+    g.font = '500 14px "IBM Plex Mono", monospace';
+    g.fillText(ramKit.ddr + ' ' + ramKit.cl + ' ' + ramKit.v.replace(' ', ''), 132, 38);
+    g.fillText(ramKit.label, 132, 55);
+    const r = rand(44);
+    for (let x = 132; x < 380;) { const bw = 1 + Math.floor(r() * 3); if (r() < 0.55) g.fillRect(x, 66, bw, 30); x += bw + 1; }
+    g.font = '500 11px "IBM Plex Mono", monospace';
+    g.fillText('SN: 23440871562', 132, 106); g.fillText('Warranty void if removed', 300, 121);
+    g.font = '700 30px Archivo, Arial, sans-serif'; g.fillText('CE', 432, 84);
+  });
+
+  const RM = {
+    body: finishSet(tag(micro(std({}), BLAST), 0, 0.75), {
+      black: { color: 0x2c2d31, metalness: 0.5, roughness: 0.6 }, snow: { color: 0xe3e4e8, metalness: 0.15, roughness: 0.5 } }),
+    band: tag(micro(std({ color: 0x0f0f11, metalness: 0.9, roughness: 0.42, roughnessMap: brushR, normalMap: brushN, normalScale: new THREE.Vector2(0.12, 0.12) }), BRUSH), 0, 0.85),
+    stripe: finishSet(tag(std({ metalness: 1, roughness: 0.2 }), 0, 0.9), {
+      black: { color: 0xe6e8eb, metalness: 1, roughness: 0.18 }, snow: { color: 0x1c1c22, metalness: 0.4, roughness: 0.38 } }),
+    rail: finishSet(std({ metalness: 0.3, roughness: 0.75 }), { black: { color: 0x0d0d0f }, snow: { color: 0xcfd0d4 } }),   // slot shade, per finish
+    logo: std({ map: ramLogo, alphaTest: 0.5, alphaToCoverage: true, roughness: 0.5 }),
+    print: std({ map: ramPrint, transparent: true, depthWrite: false, roughness: 0.6 }),
+    label: std({ map: ramLabel, roughness: 0.42, metalness: 0.15 }),
+    pcb: std({ color: 0x17181a, roughness: 0.6 }),
   };
-  run('TRIDENT', 85.5, 105.4, 19.5, 2.45, '#f5f5f5', 4, 5);
-  run('Z', 106.3, 113.6, 19.5, 4.1, '#e02722', 0);
-  run('5', 114.3, 120.2, 19.5, 2.9, '#f5f5f5', 0);
-  run('nEO RGB', 106.5, 123.5, 16.2, 2.1, '#f5f5f5', 3, 5);
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  try { g.letterSpacing = '0px'; } catch (e) { /* older canvas */ }
-});
-// small G.SKILL print on top of each light bar
-const ramPrint = canvasTex(256, 48, (g, w, h) => {
-  g.fillStyle = '#4d525a'; spacedText(g, 'G.SKILL', w / 2, h / 2 + 1, '700 34px Archivo, Arial, sans-serif', 4, 1.2);
-});
-// product label on the back face: hologram square, part number, timings, barcode
-const ramLabel = canvasTex(512, 128, (g, w, h) => {
-  g.fillStyle = '#e6e7ea'; g.fillRect(0, 0, w, h);
-  const hg = g.createLinearGradient(8, 8, 120, 120);
-  ['#b8c6da', '#e2cfe9', '#c4e6d6', '#ded3b6', '#b8c6da'].forEach((c, i) => hg.addColorStop(i / 4, c));
-  g.fillStyle = hg; g.fillRect(8, 8, 112, 112);
-  g.fillStyle = '#4a4f58'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '800 22px Archivo, Arial, sans-serif'; g.fillText('G.SKILL', 64, 56);
-  g.font = '500 14px "IBM Plex Mono", monospace'; g.fillText('2344', 64, 84);
-  g.fillStyle = '#111214'; g.textAlign = 'left';
-  g.font = '600 18px "IBM Plex Mono", monospace'; g.fillText(ramKit.pn, 132, 18);
-  g.font = '500 14px "IBM Plex Mono", monospace';
-  g.fillText('DDR5-6000 ' + ramKit.cl + ' 1.40V', 132, 38);
-  g.fillText('32Gx2  XMP 3.0 + EXPO', 132, 55);
-  const r = rand(44);
-  for (let x = 132; x < 380;) { const bw = 1 + Math.floor(r() * 3); if (r() < 0.55) g.fillRect(x, 66, bw, 30); x += bw + 1; }
-  g.font = '500 11px "IBM Plex Mono", monospace';
-  g.fillText('SN: 23440871562', 132, 106); g.fillText('Warranty void if removed', 300, 121);
-  g.font = '700 30px Archivo, Arial, sans-serif'; g.fillText('CE', 432, 84);
-});
 
-const RM = {
-  body: tag(micro(std({}), BLAST), 0, 0.75),   // colour set per finish
-  band: tag(micro(std({ color: 0x0f0f11, metalness: 0.9, roughness: 0.42, roughnessMap: brushR, normalMap: brushN, normalScale: new THREE.Vector2(0.12, 0.12) }), BRUSH), 0, 0.85),
-  stripe: tag(std({ metalness: 1, roughness: 0.2 }), 0, 0.9),
-  rail: std({ metalness: 0.3, roughness: 0.75 }),                                                   // slot shade, per finish
-  logo: std({ map: ramLogo, alphaTest: 0.5, alphaToCoverage: true, roughness: 0.5 }),
-  print: std({ map: ramPrint, transparent: true, depthWrite: false, roughness: 0.6 }),
-  label: std({ map: ramLabel, roughness: 0.42, metalness: 0.15 }),
-  pcb: std({ color: 0x17181a, roughness: 0.6 }),
-};
-
-// shell: straight bottom edge, low run under the light bar, ogee, tall flat end. The outer layer carries the face;
-// the inner RAM_IN layer's tall end is chamfered back 1.5 mm at the top and 2 mm at the end, so seen past the other
-// shell's light bar the block reads ~41.8 mm tall and starts ~2 mm in, as in the straight-on photos. The inner layer
-// is also notched at the light-bar end for the end-face window, hidden behind the outer layer from the face.
-const rmShellGeo = mergeGeometries([
-  rmSolid([[RAM_E0, 4.0], [RAM_E1, 4.0], [RAM_E1, 43.3], ...rmCurve(91, 64, 20), [RAM_E0, 36.0]], RAM_T / 2 - RAM_IN).translate(0, 0, RAM_IN),
-  rmChamfered([[RAM_E0, 4.0], [RAM_E1, 4.0], [RAM_E1, 38.0], [RAM_E1, 39.4], [RAM_E1, 43.3], ...rmCurve(91, 64, 20),
-    [RAM_E0 + 1.4, 36.0], [RAM_E0 + 1.4, 29.5], [RAM_E0, 29.5]], RAM_IN + 0.02,
-  (x, y) => [x > RAM_E1 - 0.01 && y > 39 ? RAM_E1 - 2 : x, y > 39.4 ? Math.max(39.4, y - 1.5) : y]),
-]);
-// light bar: a block on the low run, end inset 0.5 mm with a chamfered corner, tapering under the ogee; plus the
-// end-face window (inner layer only, 0.5 mm deep in its notch)
-const rmLightGeo = mergeGeometries([
-  rmSolid([[RAM_E0 + 0.5, 36.0], ...rmCurve(64, 76.9, 10), [RAM_E0 + 1.4, 39.4], [RAM_E0 + 0.5, 38.5]], RAM_T / 2),
-  new THREE.ExtrudeGeometry(rmShape([[RAM_E0 + 0.5, 29.5], [RAM_E0 + 1.4, 29.5], [RAM_E0 + 1.4, 36.0], [RAM_E0 + 0.5, 36.0]]), { depth: RAM_IN, bevelEnabled: false }),
-]);
-// two shallow slots on the tall end's inner face (seen above the other shell's light bar): a dark top line, and at
-// one end a 45° line down to the light bar; both end lines lean the same way, as in the straight-on photos
-const rmRailGeo = mergeGeometries([[110.35, 127.35, 110.35], [87.35, 104.35, 104.35]].flatMap(([a, b, s]) => [
-  [[a, 40.75], [b, 40.75], [b, 41.35], [a, 41.35]],
-  [[s - 0.25, 41.35], [s + 0.25, 41.35], [s - 1.7, 39.4], [s - 2.2, 39.4]],
-].map(pts => new THREE.ExtrudeGeometry(rmShape(pts), { depth: 0.004, bevelEnabled: false }).translate(0, 0, -0.005))));
-// brushed inset band, brushing along the module
-const rmBandGeo = new THREE.PlaneGeometry((RAM_E1 - RAM_E0) / 10 - 0.04, rmY(16));
-{ const uv = rmBandGeo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 4.5, uv.getY(i) * 0.6); }
-// highlight stripes: upper one level at 30 mm then filleted into a 19.7° climb out of the top edge;
-// lower one rises 18° from a point on the bottom edge and levels out at 10 mm
-const rmStripeGeo = (() => {
-  const k1 = 0.358, x1 = 74.25, h1 = 3.5, k2 = 0.328, x2 = 40.5 + 5.7 / 0.328, h2 = 4;
-  const upZ = x => 30 + (x < x1 - h1 ? 0 : x < x1 + h1 ? k1 * (x - x1 + h1) ** 2 / (4 * h1) : k1 * (x - x1));
-  const loZ = x => 10 - (x > x2 + h2 ? 0 : x > x2 - h2 ? k2 * (x2 + h2 - x) ** 2 / (4 * h2) : k2 * (x2 - x));
-  const span = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => a + (b - a) * i / n);
-  return mergeGeometries([
-    rmRibbon([RAM_E0 + 0.1, ...span(x1 - h1, x1 + h1, 10), x1 + 12.7 / k1].map(x => [x, upZ(x)]), 0.07),
-    rmRibbon([40.5, 41.2, 42.2, 43.5, ...span(x2 - h2, x2 + h2, 10), RAM_E1 - 0.4].map(x => [x, loZ(x)]), 0.07, 3),
+  // shell: straight bottom edge, low run under the light bar, ogee, tall flat end. The outer layer carries the face;
+  // the inner RAM_IN layer's tall end is chamfered back 1.5 mm at the top and 2 mm at the end, so seen past the other
+  // shell's light bar the block reads ~41.8 mm tall and starts ~2 mm in, as in the straight-on photos. The inner layer
+  // is also notched at the light-bar end for the end-face window, hidden behind the outer layer from the face.
+  const rmShellGeo = mergeGeometries([
+    rmSolid([[RAM_E0, 4.0], [RAM_E1, 4.0], [RAM_E1, 43.3], ...rmCurve(91, 64, 20), [RAM_E0, 36.0]], RAM_T / 2 - RAM_IN).translate(0, 0, RAM_IN),
+    rmChamfered([[RAM_E0, 4.0], [RAM_E1, 4.0], [RAM_E1, 38.0], [RAM_E1, 39.4], [RAM_E1, 43.3], ...rmCurve(91, 64, 20),
+      [RAM_E0 + 1.4, 36.0], [RAM_E0 + 1.4, 29.5], [RAM_E0, 29.5]], RAM_IN + 0.02,
+    (x, y) => [x > RAM_E1 - 0.01 && y > 39 ? RAM_E1 - 2 : x, y > 39.4 ? Math.max(39.4, y - 1.5) : y]),
   ]);
-})();
-// PCB: only the end tabs (with latch notches) and a sliver above the slot show
-const rmPcbGeo = (() => {
-  const s = new THREE.Shape(), hx = RAM_L / 2;
-  s.moveTo(-hx, 0); s.lineTo(hx, 0); s.lineTo(hx, 0.78);
-  s.absarc(hx, 0.95, 0.17, -Math.PI / 2, Math.PI / 2, true);
-  s.lineTo(hx, 3.125); s.lineTo(-hx, 3.125); s.lineTo(-hx, 1.12);
-  s.absarc(-hx, 0.95, 0.17, Math.PI / 2, -Math.PI / 2, true);
-  s.lineTo(-hx, 0);
-  return new THREE.ExtrudeGeometry(s, { depth: 0.12, bevelEnabled: false, curveSegments: 6 }).translate(0, 0, -0.06);
-})();
-RM.print.userData.noShadow = true;
-RM.print.opacity = 0.75;                                       // faint print, not specks on the lit bar
-const rmLogoGeo = new THREE.PlaneGeometry(4.1, rmY(9));
-const rmPrintGeo = new THREE.PlaneGeometry(0.8, 0.15);
-const rmLabelGeo = new THREE.PlaneGeometry(4.05, rmY(10));
+  // light bar: a block on the low run, end inset 0.5 mm with a chamfered corner, tapering under the ogee; plus the
+  // end-face window (inner layer only, 0.5 mm deep in its notch)
+  const rmLightGeo = mergeGeometries([
+    rmSolid([[RAM_E0 + 0.5, 36.0], ...rmCurve(64, 76.9, 10), [RAM_E0 + 1.4, 39.4], [RAM_E0 + 0.5, 38.5]], RAM_T / 2),
+    new THREE.ExtrudeGeometry(rmShape([[RAM_E0 + 0.5, 29.5], [RAM_E0 + 1.4, 29.5], [RAM_E0 + 1.4, 36.0], [RAM_E0 + 0.5, 36.0]]), { depth: RAM_IN, bevelEnabled: false }),
+  ]);
+  // two shallow slots on the tall end's inner face (seen above the other shell's light bar): a dark top line, and at
+  // one end a 45° line down to the light bar; both end lines lean the same way, as in the straight-on photos
+  const rmRailGeo = mergeGeometries([[110.35, 127.35, 110.35], [87.35, 104.35, 104.35]].flatMap(([a, b, s]) => [
+    [[a, 40.75], [b, 40.75], [b, 41.35], [a, 41.35]],
+    [[s - 0.25, 41.35], [s + 0.25, 41.35], [s - 1.7, 39.4], [s - 2.2, 39.4]],
+  ].map(pts => new THREE.ExtrudeGeometry(rmShape(pts), { depth: 0.004, bevelEnabled: false }).translate(0, 0, -0.005))));
+  // brushed inset band, brushing along the module
+  const rmBandGeo = new THREE.PlaneGeometry((RAM_E1 - RAM_E0) / 10 - 0.04, rmY(16));
+  { const uv = rmBandGeo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 4.5, uv.getY(i) * 0.6); }
+  // highlight stripes: upper one level at 30 mm then filleted into a 19.7° climb out of the top edge;
+  // lower one rises 18° from a point on the bottom edge and levels out at 10 mm
+  const rmStripeGeo = (() => {
+    const k1 = 0.358, x1 = 74.25, h1 = 3.5, k2 = 0.328, x2 = 40.5 + 5.7 / 0.328, h2 = 4;
+    const upZ = x => 30 + (x < x1 - h1 ? 0 : x < x1 + h1 ? k1 * (x - x1 + h1) ** 2 / (4 * h1) : k1 * (x - x1));
+    const loZ = x => 10 - (x > x2 + h2 ? 0 : x > x2 - h2 ? k2 * (x2 + h2 - x) ** 2 / (4 * h2) : k2 * (x2 - x));
+    const span = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => a + (b - a) * i / n);
+    return mergeGeometries([
+      rmRibbon([RAM_E0 + 0.1, ...span(x1 - h1, x1 + h1, 10), x1 + 12.7 / k1].map(x => [x, upZ(x)]), 0.07),
+      rmRibbon([40.5, 41.2, 42.2, 43.5, ...span(x2 - h2, x2 + h2, 10), RAM_E1 - 0.4].map(x => [x, loZ(x)]), 0.07, 3),
+    ]);
+  })();
+  // PCB: only the end tabs (with latch notches) and a sliver above the slot show
+  const rmPcbGeo = (() => {
+    const s = new THREE.Shape(), hx = RAM_L / 2;
+    s.moveTo(-hx, 0); s.lineTo(hx, 0); s.lineTo(hx, 0.78);
+    s.absarc(hx, 0.95, 0.17, -Math.PI / 2, Math.PI / 2, true);
+    s.lineTo(hx, 3.125); s.lineTo(-hx, 3.125); s.lineTo(-hx, 1.12);
+    s.absarc(-hx, 0.95, 0.17, Math.PI / 2, -Math.PI / 2, true);
+    s.lineTo(-hx, 0);
+    return new THREE.ExtrudeGeometry(s, { depth: 0.12, bevelEnabled: false, curveSegments: 6 }).translate(0, 0, -0.06);
+  })();
+  RM.print.userData.noShadow = true;
+  RM.print.opacity = 0.75;                                       // faint print, not specks on the lit bar
+  const rmLogoGeo = new THREE.PlaneGeometry(4.1, rmY(9));
+  const rmPrintGeo = new THREE.PlaneGeometry(0.8, 0.15);
+  const rmLabelGeo = new THREE.PlaneGeometry(4.05, rmY(10));
 
-const ram = part('G.SKILL Trident Z5 Neo RGB 64 GB (2 × 32 GB)', RAM_KIT.black.spec);
-[[DIMM_U[1], 0.31], [DIMM_U[3], 0.35]].forEach(([u, phase]) => {
-  const mod = new THREE.Group();
-  mod.position.set(BX - 0.8 + 0.35, boardY(8.5), boardZ(u));   // gold-finger edge 3.5 mm down in the slot
-  mod.rotation.z = Math.PI / 2;                                // module height → toward the glass, length → up
-  ram.add(mod);
-  const lit = rgbMat(0.4, phase, 'ram');
-  lit.color.setHex(0xb4bec8); lit.roughness = 0.45;            // milky diffuser when unlit
-  add(rmPcbGeo, RM.pcb, 0, 0, 0, mod);
-  for (const back of [false, true]) {
-    const s = new THREE.Group();
-    s.rotation.y = back ? Math.PI : 0;
-    mod.add(s);
-    add(rmShellGeo, RM.body, 0, 0, 0, s);
-    add(rmRailGeo, RM.rail, 0, 0, 0, s);
-    add(rmLightGeo, lit, 0, 0, 0, s);
-    add(rmBandGeo, RM.band, 0, rmY(20), RAM_T / 2 + 0.002, s);
-    add(rmStripeGeo, RM.stripe, 0, 0, RAM_T / 2 + 0.004, s);
-    add(rmLogoGeo, RM.logo, rmX(104.5), rmY(20), RAM_T / 2 + 0.006, s);
-    add(rmPrintGeo, RM.print, rmX(62), rmY(39.4) + 0.003, RAM_T / 4, s).rotation.x = -Math.PI / 2;
-    if (back) add(rmLabelGeo, RM.label, rmX(24.75), rmY(17.5), RAM_T / 2 + 0.006, s);
-  }
-});
-// Snow: the matte-white twin kit (body white, brushed band stays black, stripes turn black)
-onFinish(f => {
-  const snow = f === 'snow';
-  ramKit = snow ? RAM_KIT.snow : RAM_KIT.black;
-  ram.userData.part.spec = ramKit.spec;
-  RM.body.color.setHex(snow ? 0xe3e4e8 : 0x2c2d31);
-  RM.body.metalness = snow ? 0.15 : 0.5;
-  RM.body.roughness = snow ? 0.5 : 0.6;
-  RM.rail.color.setHex(snow ? 0xcfd0d4 : 0x0d0d0f);
-  RM.stripe.color.setHex(snow ? 0x1c1c22 : 0xe6e8eb);
-  RM.stripe.metalness = snow ? 0.4 : 1;
-  RM.stripe.roughness = snow ? 0.38 : 0.18;
-  ramLabel.userData.redraw();
-});
+  const ram = kit.part(spec.name, spec.kits.black.spec);
+  spec.slots.forEach((s, i) => {
+    const phase = spec.phases[i], d = mounts.dimm[s];
+    const mod = new THREE.Group();
+    mod.position.set(d.x, d.y, d.z);                             // gold-finger edge 3.5 mm down in the slot
+    mod.rotation.z = Math.PI / 2;                                // module height → toward the glass, length → up
+    ram.add(mod);
+    const lit = rgbMat(0.4, phase, 'ram');
+    lit.color.setHex(0xb4bec8); lit.roughness = 0.45;            // milky diffuser when unlit
+    add(rmPcbGeo, RM.pcb, 0, 0, 0, mod);
+    for (const back of [false, true]) {
+      const shell = new THREE.Group();
+      shell.rotation.y = back ? Math.PI : 0;
+      mod.add(shell);
+      add(rmShellGeo, RM.body, 0, 0, 0, shell);
+      add(rmRailGeo, RM.rail, 0, 0, 0, shell);
+      add(rmLightGeo, lit, 0, 0, 0, shell);
+      add(rmBandGeo, RM.band, 0, rmY(20), RAM_T / 2 + 0.002, shell);
+      add(rmStripeGeo, RM.stripe, 0, 0, RAM_T / 2 + 0.004, shell);
+      add(rmLogoGeo, RM.logo, rmX(104.5), rmY(20), RAM_T / 2 + 0.006, shell);
+      add(rmPrintGeo, RM.print, rmX(62), rmY(39.4) + 0.003, RAM_T / 4, shell).rotation.x = -Math.PI / 2;
+      if (back) add(rmLabelGeo, RM.label, rmX(24.75), rmY(17.5), RAM_T / 2 + 0.006, shell);
+    }
+  });
+  // Snow: the matte-white twin kit (body white, brushed band stays black, stripes turn black)
+  onFinish(f => {
+    const snow = f === 'snow';
+    ramKit = snow ? spec.kits.snow : spec.kits.black;
+    ram.userData.part.spec = ramKit.spec;
+    ramLabel.userData.redraw();
+  });
+  return { group: ram };
+}
+BUILDERS.ram = { trident: buildRam };
+parts.mount('ram');
 // ===== END SECTION ram =====
 
 // ===== SECTION aio: liquid cooler: pump, LCD, hoses, radiator, radiator fans =====
@@ -1871,11 +2381,12 @@ onFinish(f => {
 // LCD: NZXT CAM's infographic (big CPU reading, liquid and pump speed on the right, 270° gauge with a dot)
 const lcdCanvas = document.createElement('canvas');
 lcdCanvas.width = lcdCanvas.height = 640;
-const lcdTex = new THREE.CanvasTexture(lcdCanvas);
-lcdTex.colorSpace = THREE.SRGBColorSpace;
-lcdTex.anisotropy = maxAniso;
+// the mounted LCD head sets lcdTex and lcdMat (in its onAttach); with no LCD mounted, drawLCD does nothing and the
+// power section drives this inert stand-in
+let lcdTex = null;
 const lcdHsl = {}, lcdTint = new THREE.Color();
 function drawLCD() {
+  if (!lcdTex) return;
   const g = lcdCanvas.getContext('2d'), s = lcdCanvas.width, c = s / 2, k = s / 640;
   const font = (w, px) => `${w} ${px * k}px Archivo, Arial, sans-serif`;
   const deg = (x, y, r, w) => { g.lineWidth = w; g.beginPath(); g.arc(x, y, r, 0, TAU); g.stroke(); };
@@ -1934,9 +2445,10 @@ function drawLCD() {
   side(String(liquidTemp()), 'Liquid', c - 25 * k, 62, true);
   side(String(pumpRpm), 'Pump RPM', c + 90 * k, 54, false);
 }
-drawLCD();
 
-{
+// Kraken 360 design language: lathe pump cap with an RGB ring and (head 'lcd') the domed LCD, radiator with its hub, F360 fans
+function buildAio(spec, mounts, kit) {
+const group = new THREE.Group();   // holds the pump, radiator and fan parts; the hoses are their own part (buildHoses)
 // radiator core seen end-on: flat tubes along the length, louvred fins between; one tile is 1 cm
 const finH = new Float32Array(128 * 128);
 for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) {
@@ -1952,13 +2464,15 @@ const nzxtA = canvasTex(256, 64, (g, w, h) => {
   g.fillStyle = '#fff'; spacedText(g, 'NZXT', w / 2, h / 2 + 2, '800 50px Archivo, Arial, sans-serif', 7, 1.15);
 }, { srgb: false });
 
+// the screen (texture and material) exists only with an LCD head
+const screenTex = spec.head === 'lcd' ? kit.own(new THREE.CanvasTexture(lcdCanvas)) : null;
+if (screenTex) { screenTex.colorSpace = THREE.SRGBColorSpace; screenTex.anisotropy = maxAniso; }
 const AM = {
   body: tag(micro(phys({ roughness: 0.46, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.45 }), MOLDED), 0, 0.85),
   dark: std({ color: 0x0e0f11, roughness: 0.62, metalness: 0 }),
   copper: tag(micro(phys({ color: 0xc47e57, metalness: 1, roughness: 0.32, roughnessMap: brushR, normalMap: brushN, normalScale: new THREE.Vector2(0.12, 0.12) }), BRUSH), 0.6, 0.8),
   glass: phys({ color: 0x08080a, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.02 }),
-  lcd: phys({ color: 0x000000, emissiveMap: lcdTex, emissive: 0xffffff, emissiveIntensity: 1.1, roughness: 0.08, metalness: 0, clearcoat: 0.1, clearcoatRoughness: 0.03 }),
-  sleeve: phys({ roughness: 0.6, metalness: 0, sheen: 0.8, sheenRoughness: 0.4, sheenColor: 0x6d7077, normalMap: braidN, normalScale: new THREE.Vector2(1.1, 1.1) }),
+  lcd: screenTex && phys({ color: 0x000000, emissiveMap: screenTex, emissive: 0xffffff, emissiveIntensity: 1.1, roughness: 0.08, metalness: 0, clearcoat: 0.1, clearcoatRoughness: 0.03 }),
   radCore: tag(std({ map: finMap, normalMap: finN, metalness: 0.55, roughness: 0.5 }), 1, 0.6),
   radShell: tag(micro(phys({ roughness: 0.42, metalness: 0 }), POWDER), 0, 0.8),
   frame: tag(micro(phys({ roughness: 0.5, metalness: 0 }), MOLDED), 0, 0.8),
@@ -1967,26 +2481,25 @@ const AM = {
   deboss: std({ roughness: 0.85, metalness: 0, alphaMap: nzxtA, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
   screw: std({ color: 0x141517, metalness: 0.7, roughness: 0.35 }),
 };
-lcdMat = AM.lcd;
-AM.lcd.userData.env = 0.08;   // keep the studio cards off the screen; the black border carries the glass highlight
+const lcd = screenTex ? { mat: AM.lcd, tex: screenTex } : null;
+kit.onAttach(() => { lcdTex = lcd ? lcd.tex : null; lcdMat = lcd ? lcd.mat : LCD_OFF; drawLCD(); });
+kit.onDispose(() => { if (screenTex && lcdTex === screenTex) { lcdTex = null; lcdMat = LCD_OFF; } });
+if (AM.lcd) AM.lcd.userData.env = 0.08;   // keep the studio cards off the screen; the black border carries the glass highlight
 AM.glass.userData.env = 0.9;
 AM.deboss.userData.noShadow = true;
-onFinish(f => {
-  const snow = f === 'snow';
-  AM.body.color.setHex(snow ? 0xe6e7ea : 0x1c1d1f);
-  AM.sleeve.color.setHex(snow ? 0xe0e1e4 : 0x1a1a1c);
-  AM.sleeve.sheenColor.setHex(snow ? 0xffffff : 0x6d7077);
-  AM.radCore.color.setHex(snow ? 0xc8cbd0 : 0x2a2c30);
-  AM.radShell.color.setHex(snow ? 0xe3e5e8 : 0x1b1b1d);
-  AM.frame.color.setHex(snow ? 0xeaecee : 0x1f2022);
-  AM.pad.color.setHex(snow ? 0xe2e4e7 : 0x1c1d1f);
-  AM.pocket.color.setHex(snow ? 0x9fa2a7 : 0x0e0f11);
-  AM.deboss.color.setHex(snow ? 0xb9bcc1 : 0x0c0d0e);
-});
+// finish looks: the mounted finish picks black or snow
+const looks = (black, snow) => ({ black: { color: black }, snow: { color: snow } });
+kit.finishSet(AM.body, looks(0x1c1d1f, 0xe6e7ea));
+kit.finishSet(AM.radCore, looks(0x2a2c30, 0xc8cbd0));
+kit.finishSet(AM.radShell, looks(0x1b1b1d, 0xe3e5e8));
+kit.finishSet(AM.frame, looks(0x1f2022, 0xeaecee));
+kit.finishSet(AM.pad, looks(0x1c1d1f, 0xe2e4e7));
+kit.finishSet(AM.pocket, looks(0x0e0f11, 0x9fa2a7));
+kit.finishSet(AM.deboss, looks(0x0c0d0e, 0xb9bcc1));
 
 // ---------- pump ----------
-const pump = part('NZXT Kraken Elite 360 RGB', 'AIO pump · 2.72" 640 × 640 IPS LCD, RGB ring, Turbine pump 1,200–2,800 RPM · cooling the Ryzen 7 9800X3D');
-const PY = boardY(SOCKET.v), PZ = boardZ(SOCKET.u);
+const pump = part(spec.name, spec.spec, group);
+const PY = mounts.socket.y, PZ = mounts.socket.z;
 // the Ø93.5 cap starts 2.45 cm off the board, clear of the VRM heatsinks; face (cover glass) plane at PXF
 const PR = 4.675, PX1 = BX - 2.45, PXF = -3.4, GR = 4.16, LR = 3.45, SAG = 0.1;
 {
@@ -2010,7 +2523,12 @@ const dome = (r0, r1, seg, rings) => {
   return geo;
 };
 add(dome(LR - 0.01, GR, 112, 3), AM.glass, PXF - 0.003, PY, PZ, pump).rotation.y = -Math.PI / 2;
-add(dome(0.0001, LR, 112, 12), AM.lcd, PXF - 0.003, PY, PZ, pump).rotation.y = -Math.PI / 2;
+if (AM.lcd) add(dome(0.0001, LR, 112, 12), AM.lcd, PXF - 0.003, PY, PZ, pump).rotation.y = -Math.PI / 2;
+else {
+  // gloss-black cap under the same cover glass; the RGB ring around it is the only light
+  const cap = std({ color: 0x050506, roughness: 0.08, metalness: 0 }); cap.userData.env = 1;
+  add(dome(0.0001, LR, 112, 12), cap, PXF - 0.003, PY, PZ, pump).rotation.y = -Math.PI / 2;
+}
 // base under the cap: round plate, cold-plate frame, brushed copper plate on the IHS, AM5 bracket on the
 // backplate standoffs (AMD 54 × 90 mm pattern, the 90 mm axis vertical on the board)
 cyl(4.05, 4.05, 3.0 - PX1 + 0.02, 72, AM.body, (PX1 + 3.0) / 2, PY, PZ, 'x', pump);
@@ -2035,25 +2553,13 @@ for (const dz of [-1, 1]) {
   cyl(0.82, 0.82, 0.4, 32, AM.body, 0.05, EY - 0.95 * Math.cos(SW), PZ + dz * (1 + 0.95 * Math.sin(SW)), null, pump).rotation.x = -dz * SW;
 }
 
-// ---------- tubing ----------
-const tubes = part('Kraken Elite tubing', '2 × 420 mm CIIR rubber hoses, PET braided sleeve');
-const tube = (pts, r = 0.78) => {
-  const c = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)), false, 'centripetal');
-  add(sleeveUV(new THREE.TubeGeometry(c, 180, r, 20, false), c.getLength(), r, 0.5), AM.sleeve, 0, 0, 0, tubes);
-};
+// ---------- tubing: the hoses are their own part (buildHoses); this keeps the geometry both ends share ----------
 // start inside the barrel and leave along the swivelled outlet's axis; the hose then eases level just above the card
 const exit = (dz, ts) => ts.map(t => [0.05, EY - t * Math.cos(SW), PZ + dz * (1 + t * Math.sin(SW))]);
-const RX = RAD_BAY.x, RB = RAD_BAY.top - 2.7, RYc = RAD_BAY.top - 1.35, FY = RAD_BAY.fanFace, FT = RB - FY;
+const RX = mounts.radBay.x, RB = mounts.radBay.top - 2.7, RYc = mounts.radBay.top - 1.35, FY = mounts.radBay.fanFace, FT = RB - FY;
 const CORE = 18.15, TANK = 1.9, PORT_Z = -(CORE + TANK / 2), PORTS = [RX + 2.7, RX - 2.7];
-// both run level just above the card: the rear hose takes up its slack in an S under the pump, the front one in a wide
-// loop toward the glass; then up in front of the exhaust fan and straight into the downward ports. The loops stay low
-// until they are clear of the pump, so the LCD stays clear when seen through the glass.
-tube([...exit(-1, [0.15, 1.15, 2.15]), [-0.15, 24.72, -13.02], [-0.71, 24.58, -13.86], [-1.55, 24.52, -14.42], [-2.55, 24.5, -14.62], [-3.54, 24.49, -14.42], [-4.39, 24.48, -13.86], [-4.95, 24.47, -13.02], [-5.15, 24.47, -12.02], [-5.15, 24.47, -10.52], [-5.35, 24.47, -9.53], [-5.91, 24.47, -8.68], [-6.75, 24.47, -8.12], [-7.75, 24.47, -7.92], [-8.74, 24.47, -8.12], [-9.59, 24.47, -8.68], [-10.15, 24.47, -9.53], [-10.35, 24.47, -10.52], [-10.35, 24.55, -12.6], [-10.25, 24.85, -14.5], [-10.2, 25.6, -16.6], [-9.9, 28.2, -18.5], [-9.3, 31.6, -18.95], [-8.6, 33.4, PORT_Z], [-7.4, 35, PORT_Z], [-6, 36.3, PORT_Z], [-5, 37.3, PORT_Z], [-4.65, 38.15, PORT_Z], [PORTS[0], FY - 0.3, PORT_Z]]);
-tube([...exit(1, [0.15, 1.15, 1.79]), [-0.13, 24.86, -5.4], [-0.65, 24.68, -4.7], [-1.43, 24.57, -4.3], [-2.35, 24.51, -4.15], [-3.4, 24.5, -4.1], [-6, 24.5, -3.75], [-9.4, 24.5, -4.9], [-11.9, 24.55, -7.6], [-12.5, 24.65, -11.5], [-12.5, 24.85, -14.2], [-12.5, 25.9, -16.8], [-12.3, 28.6, -18.4], [-12.1, 32.4, -18.9], [-11.75, 34.7, PORT_Z], [-11.1, 36.5, PORT_Z], [-10.35, 37.65, PORT_Z], [-10.05, 38.35, PORT_Z], [PORTS[1], FY - 0.3, PORT_Z]]);
-for (const x of PORTS) cyl(0.86, 0.86, 0.4, 32, AM.body, x, FY - 0.62, PORT_Z, null, tubes);
-
 // ---------- radiator ----------
-const rad = part('Kraken Elite 360 radiator', '401 × 120 × 27 mm aluminium, cable hub with a single breakout cable');
+const rad = part(spec.radiator.name, spec.radiator.spec, group);
 box(11.6, 2.6, CORE * 2, AM.radCore, RX, RYc, 0, rad);
 for (const s of [-1, 1]) box(0.22, 2.7, CORE * 2 + 0.02, AM.radShell, RX + s * 5.89, RYc, 0, rad, 0.04);
 for (const s of [-1, 1]) {
@@ -2072,12 +2578,11 @@ box(2.0, 0.75, 0.66, AM.dark, RX, FY - 0.4, PORT_Z, rad, 0.06);
   // breakout cable (USB 2.0, SATA power, PWM): rises before the board edge, over the I/O shroud and the EPS
   // cables, into the top of the top-rear grommet
   const pts = [[RX, FY - 0.7, PORT_Z], [RX, 38.7, PORT_Z - 0.55], [RX + 0.8, 38.65, -20.2], [-2.5, 38.85, -20.25], [-0.8, 39.6, -20.0], [-0.6, 41.6, -19.4], [0.8, 42.55, -18.7], [2.6, 42.45, -18.1], [XT + 0.1, 42.38, -17.9]];
-  const c = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)), false, 'centripetal');
-  add(sleeveUV(new THREE.TubeGeometry(c, 80, 0.22, 8, false), c.getLength(), 0.22, 0.3), M.sleeve, 0, 0, 0, rad);
+  kit.sleeved(rad, pts, 0.22, M.sleeve, { tubular: 80, radial: 8, cell: 0.3 });
 }
 
 // ---------- F360 RGB Core: one 360 × 120 × 25 mm frame, three 120 mm rotors ----------
-const fans = part('NZXT F360 RGB Core', 'Single-frame 3 × 120 mm fans, 500–2,400 RPM, 75 CFM, 8 ARGB LEDs per hub');
+const fans = part(spec.fanPart.name, spec.fanPart.spec, group);
 const FW = 12, FLN = 36, OR = 5.75, CH = 0.15, FZ = [-12, 0, 12];
 const frameShape = (w, l, cr) => { const s = roundedRect(w, l, cr); for (const z of FZ) s.holes.push(circle(0, z, OR)); return s; };
 {
@@ -2133,7 +2638,7 @@ const f360Blade = (phase) => {
   return m;
 };
 const F360_BLADE = { rh: 1.95, rt: 5.62, c0: 2.4, c1: 4.0, p0: 0.95, p1: 0.48, sweep: 1.0, camber: 0.08, thick: 0.12 };
-const f360Rotor = radial(bladeGeometry(F360_BLADE), 9);
+const f360Rotor = radial(bladeGeometry(F360_BLADE), spec.fans.blades);
 // mirror to the real handedness: seen from the intake side the blades sweep counter-clockwise, root to tip
 f360Rotor.scale(-1, 1, 1);
 { const ix = f360Rotor.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } }
@@ -2153,71 +2658,98 @@ const strutGeo = (() => {
 })();
 FZ.forEach((zc, i) => {
   const phase = 0.62 + i * 0.05;
-  const holder = new THREE.Group();   // local z = airflow, up through the radiator
-  holder.rotation.x = -Math.PI / 2; holder.position.set(RX, FY + FT / 2, zc); fans.add(holder);
-  cyl(2.25, 2.25, 0.55, 48, AM.frame, 0, 0, FT / 2 - 0.3, 'z', holder);
-  add(strutGeo, AM.frame, 0, 0, 0, holder);
-  const rotor = new THREE.Group(); rotor.userData.dynamic = true; holder.add(rotor);
-  const bm = f360Blade(phase);
-  const crisp = add(f360Rotor, bm, 0, 0, 0, rotor);
-  cyl(2.0, 2.0, 1.7, 48, bm, 0, 0, -0.2, 'z', rotor);
-  add(new THREE.CircleGeometry(1.72, 48), bm, 0, 0, -1.06, rotor).rotation.y = Math.PI;
-  add(new THREE.RingGeometry(1.72, 2.0, 48), rgbMat(1.1, phase), 0, 0, -1.056, rotor).rotation.y = Math.PI;
-  fanBlur(rotor, [crisp], bm, F360_BLADE, 9, true);
-  spinner(rotor, -(84 + Math.random() * 8), 'nzxt', 9);   // about 800–880 RPM at idle
+  fanRotor(fans, {
+    at: [RX, FY + FT / 2, zc],
+    holder: holder => {
+      cyl(2.25, 2.25, 0.55, 48, AM.frame, 0, 0, FT / 2 - 0.3, 'z', holder);
+      add(strutGeo, AM.frame, 0, 0, 0, holder);
+    },
+    rotor: rotor => {
+      const bm = f360Blade(phase);
+      const crisp = add(f360Rotor, bm, 0, 0, 0, rotor);
+      cyl(2.0, 2.0, 1.7, 48, bm, 0, 0, -0.2, 'z', rotor);
+      add(new THREE.CircleGeometry(1.72, 48), bm, 0, 0, -1.06, rotor).rotation.y = Math.PI;
+      add(new THREE.RingGeometry(1.72, 2.0, 48), rgbMat(1.1, phase), 0, 0, -1.056, rotor).rotation.y = Math.PI;
+      return { crisp, mat: bm };
+    },
+    blade: F360_BLADE, blades: spec.fans.blades, mirror: true, kind: 'nzxt',
+    speed: () => spec.fans.dir * (spec.fans.speed[0] + Math.random() * spec.fans.speed[1]),   // about 800–880 RPM at idle
+  });
 });
+const SWd = [-1, 1].map(dz => [0, -Math.cos(SW), dz * Math.sin(SW)]);
+return { group, anchors: {
+  outlets: [-1, 1].map((dz, i) => ({ p: exit(dz, [0.15])[0], d: SWd[i] })),
+  ports: PORTS.map(x => ({ p: [x, FY - 0.3, PORT_Z], d: [0, 1, 0], collar: [x, FY - 0.62, PORT_Z] })),
+  // no-go cylinders about the pump's x axis (centre [y, z]): the cap face's sightline through the glass, and the pump body
+  keepOut: [{ x: [mounts.glass.innerX, PXF], c: [PY, PZ], r: GR }, { x: [PXF, 3.0], c: [PY, PZ], r: PR }],
+  tubing: spec.tubing, collarMat: AM.body,
+} };
 }
+
+// the two braided hoses between the pump outlets and the radiator ports (aio anchors), with the port collars
+function buildHoses(spec, mounts, kit) {
+  const A = mounts.anchors.aio, r = A.tubing.r;
+  const tubes = kit.part(A.tubing.name, A.tubing.spec);
+  const sleeve = kit.finishSet(phys({ roughness: 0.6, metalness: 0, sheen: 0.8, sheenRoughness: 0.4, sheenColor: 0x6d7077, normalMap: braidN, normalScale: new THREE.Vector2(1.1, 1.1) }),
+    { black: { color: 0x1a1a1c, sheenColor: 0x6d7077 }, snow: { color: 0xe0e1e4, sheenColor: 0xffffff } });
+  // each hose: outlet → a waypoint just above the card → its port, as wide as the case allows. Rear hose first; the
+  // front one keeps 2r + 0.2 from it. Rules: bend ≥ spec.minBend (front: spec.minBendFront), ≥ spec.clear between the
+  // hose and the card top, inside the glass, and out of the keepOut cylinders (the pump's own first 2.5 cm are exempt)
+  const body = mounts.anchors.gpu.body, top = mounts.anchors.gpu.top, gx = mounts.glass.innerX;
+  const laneY = top + r + spec.clear, done = [];
+  // everything ok() reads besides the path, for laneRoute's memo; the front hose also depends on the rear one, so keys chain
+  let key = JSON.stringify([r, spec.clear, body.min, body.max, gx, A.keepOut]);
+  const EXEMPT = 2.5;   // the first 2.5 cm of a hose sit inside the pump's outlet, so only the cap cylinder applies there
+  // the search tests 49 samples, and a chord of a tight bend cuts inside the arc by up to ~0.015 cm at the optimum, so the keep-outs get a little extra
+  // room while searching; the hoses check re-tests the final curve at 256 samples against the bare cylinders
+  const CHORD = 0.015;
+  const inCyl = (q, k) => q.x > k.x[0] - r - CHORD && q.x < k.x[1] + r + CHORD && Math.hypot(q.y - k.c[0], q.z - k.c[1]) < k.r + r + CHORD;
+  const curves = A.outlets.map((o, i) => {
+    const port = A.ports[i], p0 = new THREE.Vector3(...o.p);
+    const ok = path => path.getSpacedPoints(48).every(q =>
+      q.x - r >= gx + 0.3 &&
+      !(q.x > body.min[0] - r && q.x < body.max[0] + r && q.z > body.min[2] - r && q.z < body.max[2] + r && q.y < laneY - 1e-6) &&
+      (q.distanceTo(p0) < EXEMPT ? !inCyl(q, A.keepOut[0]) : !A.keepOut.some(k => inCyl(q, k))) &&
+      done.every(pts => pts.every(w => w.distanceTo(q) >= 2 * r + 0.2)));
+    const best = kit.laneRoute({ p0: o.p, d0: o.d, p1: port.p, d1: port.d, laneY, minBend: i ? spec.minBendFront : spec.minBend, ok, key: key += '|' + i,
+      x: [gx + r + 0.4, o.p[0]], z: [body.min[2] + r, body.max[2] - r] });
+    done.push(best.path.getSpacedPoints(96));
+    return kit.sleeved(tubes, best.path, r, sleeve).curve;
+  });
+  const C = spec.collar;   // { r: 0.86, len: 0.4 } for Kraken: today's port collars
+  for (const p of A.ports) kit.cyl(C.r, C.r, C.len, 32, A.collarMat, p.collar[0], p.collar[1], p.collar[2], null, tubes);
+  return { group: tubes, anchors: { curves, r, keepOut: A.keepOut, exempt: EXEMPT, minBends: [spec.minBend, spec.minBendFront], clear: spec.clear } };
+}
+BUILDERS.aio = { kraken: buildAio };
+BUILDERS.hoses = { sleeved: buildHoses };
+parts.mount('aio');
 // ===== END SECTION aio =====
 
 // ===== SECTION gpu: graphics card and its power cable =====
 // NVIDIA GeForce RTX 5080 Founders Edition, 304 × 137 × 40 mm. Double flow-through: both fans sit on the
 // underside and blow straight through two fin stacks that fill the "infinity loop" openings on both faces.
 // A black centre cap wraps over both edges between the cast gunmetal ends and holds the angled 12V-2x6 socket.
-// camera target for the GPU close-up (world space), set inside the block below
+// camera target for the GPU close-up (world space), set from the mounted GPU handle at the end of this section
 let GPU_FOCUS;
-{
-  const GL = 30.4, GH = 13.7, GT = 4.0, hx = GH / 2, hz = GL / 2;
-  const gcx = GPU_BAY.slotEdgeX - hx, gcz = GPU_BAY.rearZ + hz, gy = GPU_BAY.top - GT;
-  GPU_FOCUS = new THREE.Vector3(gcx, gy + GT / 2 + root.position.y, gcz + 1.5);   // mid cross-section, 1.5 cm past mid-length
-
-  // polygon with filleted corners, pts = [[x, y, r], ...]; always wound counter-clockwise
-  const filletPoly = (pts, P = THREE.Shape) => {
-    let area = 0;
-    pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length]; area += p[0] * q[1] - q[0] * p[1]; });
-    if (area < 0) pts = pts.slice().reverse();
-    const s = new P(), n = pts.length;
-    for (let i = 0; i < n; i++) {
-      const [ax, ay] = pts[(i + n - 1) % n], [bx, by, r] = pts[i], [cx, cy] = pts[(i + 1) % n];
-      const lu = Math.hypot(ax - bx, ay - by), lv = Math.hypot(cx - bx, cy - by);
-      const ux = (ax - bx) / lu, uy = (ay - by) / lu, vx = (cx - bx) / lv, vy = (cy - by) / lv;
-      const half = Math.acos(Math.max(-1, Math.min(1, ux * vx + uy * vy))) / 2;
-      const d = r > 0 ? Math.min(r / Math.tan(half), lu * 0.48, lv * 0.48) : 0;
-      if (d < 1e-4) { if (i === 0) s.moveTo(bx, by); else s.lineTo(bx, by); continue; }
-      if (i === 0) s.moveTo(bx + ux * d, by + uy * d); else s.lineTo(bx + ux * d, by + uy * d);
-      s.quadraticCurveTo(bx, by, bx + vx * d, by + vy * d);
-    }
-    s.closePath();
-    return s;
-  };
-  const fitText = (g, text, cx, cy, font, spacing, width) => {
-    g.font = font;
-    const raw = [...text].reduce((a, ch) => a + g.measureText(ch).width, 0);
-    spacedText(g, text, cx, cy, font, spacing, (width - spacing * (text.length - 1)) / raw);
-  };
+// Founders Edition design language: cast X-arm frame, two flow-through fans, lit V edges and wordmark
+function buildGpuFE(spec, mounts, kit) {
+  const { length: GL, height: GH, thickness: GT } = spec.size, hx = GH / 2, hz = GL / 2;
+  const gcx = mounts.gpuBay.slotEdgeX - hx, gcz = mounts.gpuBay.rearZ + hz, gy = mounts.gpuBay.top - GT;
+  const focus = new THREE.Vector3(gcx, gy + GT / 2 + root.position.y, gcz + 1.5);   // mid cross-section, 1.5 cm past mid-length
 
   // ---- textures ----
   const wordA = canvasTex(1024, 154, (g, w, h) => {       // top-edge wordmark (alpha + glow): wide bold caps, tight tracking
     g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#fff'; fitText(g, 'GEFORCE RTX', w / 2, h / 2 + 4, '700 140px Archivo, Arial, sans-serif', 9, 990);
+    g.fillStyle = '#fff'; fitText(g, spec.wordmark, w / 2, h / 2 + 4, '700 140px Archivo, Arial, sans-serif', 9, 990);
   }, { srgb: false });
   const modelA = canvasTex(512, 112, (g, w, h) => {       // "RTX 5080" print: bold RTX, regular-weight 5080
     g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff';
     const f1 = '700 110px Archivo, Arial, sans-serif', f2 = '400 110px Archivo, Arial, sans-serif';
-    g.font = f1; const a = g.measureText('RTX ').width; g.font = f2; const b = g.measureText('5080').width;
+    g.font = f1; const a = g.measureText('RTX ').width; g.font = f2; const b = g.measureText(spec.model).width;
     const k = Math.min(1, 500 / (a + b));
     g.textBaseline = 'middle'; g.textAlign = 'left';
     g.save(); g.translate((w - (a + b) * k) / 2, h / 2 + 4); g.scale(k, 1);
-    g.font = f1; g.fillText('RTX ', 0, 0); g.font = f2; g.fillText('5080', a, 0);
+    g.font = f1; g.fillText('RTX ', 0, 0); g.font = f2; g.fillText(spec.model, a, 0);
     g.restore();
   }, { srgb: false });
   const spunR = canvasTex(256, 256, (g, w, h) => {        // spun-metal hub caps: concentric roughness rings
@@ -2234,35 +2766,30 @@ let GPU_FOCUS;
       g.fillStyle = grd; g.fillRect(x, 0, w / 7, h);
     }
   });
-  const fingerMap = canvasTex(1024, 64, (g, w, h) => {    // PCIe x16 edge: 11 + 71 gold fingers, 1 mm pitch
-    g.fillStyle = '#101611'; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#c9a646';
-    for (let i = 0; i < 82; i++) g.fillRect(4 + i * 11.4 + (i >= 11 ? 23 : 0), 0, 8, h - 12);
-  });
+  const io = gpuIoMats(kit);
 
   // ---- materials ----
   const C = {
     frame: tag(micro(phys({ color: 0x6c6862, metalness: 1, roughness: 0.4 }), CAST), 0, 1.0),
     cap: tag(micro(phys({ color: 0x141517, metalness: 0.1, roughness: 0.5 }), MOLDED), 0, 0.5),
-    fins: new THREE.MeshLambertMaterial({ map: finMap }),     // deep black-coated fin cavity: diffuse only, so it takes no studio reflection
-    inner: std({ color: 0x0e0f11, roughness: 0.65, metalness: 0.2 }),
+    fins: kit.own(new THREE.MeshLambertMaterial({ map: finMap })),     // deep black-coated fin cavity: diffuse only, so it takes no studio reflection
+    inner: io.inner,
     blade: std({ color: 0x27282c, roughness: 0.5, metalness: 0 }),
     spun: std({ color: 0x74777c, metalness: 1, roughness: 1, roughnessMap: spunR }),
-    void: std({ color: 0x030304, roughness: 0.95 }),
+    void: io.void,
     slotRim: std({ color: 0x3a3c40, roughness: 0.45, metalness: 0.3 }),   // light-catching lip around the top vents
-    bracket: std({ color: 0x141517, metalness: 0.5, roughness: 0.55 }),
+    bracket: io.bracket,
     darkMetal: std({ color: 0x34363a, metalness: 1, roughness: 0.4 }),     // heat pipes and tail-end screws
-    portShell: std({ color: 0x141517, metalness: 0.6, roughness: 0.45 }),     // black-plated DP/HDMI shells
-    pcb: std({ map: fingerMap, metalness: 0.6, roughness: 0.35 }),
+    portShell: io.portShell,
+    pcb: io.pcb,
     led: statusLed(std({ color: 0x2a2c30, roughness: 0.4, emissive: 0xffffff }), 1.5, 'gpu'),   // hidden when unlit
     word: statusLed(std({ color: 0xbfc2c6, roughness: 0.55, emissive: 0xffffff, emissiveMap: wordA, alphaMap: wordA, alphaTest: 0.5, alphaToCoverage: true }), 1.4, 'gpu'),
     printW: std({ color: 0xd2d4d8, roughness: 0.6, alphaMap: modelA, alphaTest: 0.5, alphaToCoverage: true }),
     printD: std({ color: 0x1c1d1f, roughness: 0.6, alphaMap: modelA, alphaTest: 0.5, alphaToCoverage: true }),
   };
   for (const k of ['word', 'printW', 'printD', 'slotRim']) C[k].userData.noShadow = true;
-  C.portShell.userData.env = 0.15;
 
-  const gpu = part('NVIDIA GeForce RTX 5080 Founders Edition', '16 GB GDDR7, 256-bit · 10,752 CUDA cores · 2.62 GHz boost · 360 W · 304 × 137 × 40 mm, dual-slot · fans stop at idle');
+  const gpu = kit.part(spec.name, spec.spec);
   gpu.position.set(gcx, gy, gcz);
 
   // Face coordinates: s along the card (− = bracket end), t across it (+ = top edge, toward the glass).
@@ -2273,18 +2800,14 @@ let GPU_FOCUS;
     return g.applyMatrix4(FACE).translate(0, y1 - bev, 0);
   };
   // flat decal: geometry's x → ax, y → ay, facing ax × ay
-  const decal = (geo, mat, x, y, z, ax, ay) => {
-    const X = new THREE.Vector3(...ax).normalize(), Y = new THREE.Vector3(...ay).normalize();
-    geo.applyMatrix4(new THREE.Matrix4().makeBasis(X, Y, new THREE.Vector3().crossVectors(X, Y)));
-    return add(geo, mat, x, y, z, gpu);
-  };
+  const decal = (geo, mat, x, y, z, ax, ay) => flatDecal(geo, mat, x, y, z, ax, ay, gpu);
 
   // X arms: centre lines from the middle of the card to the edges at s = ±LAND; n = (B, A) is the
   // top-left arm's normal, so the line n·(s, t) = c has s = (c − A t) / B
   const ARM = 0.3, LAND = 6.6, BAND = 0.4, BEV = 0.28;     // arm half width, landing, face band, edge radius
   const L = Math.hypot(LAND, hx), A = LAND / L, B = hx / L;
   const armS = (c, t) => (c - A * t) / B;
-  const FAN_S = 8.95, FAN_R = 5.62;                       // fan centres at s = ∓FAN_S, tip-ring radius
+  const FAN_S = spec.fans.pitch, FAN_R = spec.fans.radius;                      // fan centres at s = ∓FAN_S, tip-ring radius
 
   // cast gunmetal frame: two rounded-square loops joined at the X, open where the black cap sits
   {
@@ -2322,21 +2845,22 @@ let GPU_FOCUS;
   for (const t of [-4.4, -2.2, 0, 2.2, 4.4]) cyl(0.3, 0.3, GL - 1.2, 14, C.darkMetal, -t, 2.45, 0, 'z', gpu);   // five heat pipes
 
   // fans: 7 wide swept blades joined by a tip ring, spun-metal hub cap; axis = local z of each holder (→ +y)
-  const GPU_BLADE = { rh: 1.95, rt: 5.56, c0: 2.1, c1: 4.0, p0: 0.8, p1: 0.4, sweep: 0.7, camber: 0.08, thick: 0.12 };
-  const rotorGeo = radial(bladeGeometry(GPU_BLADE), 7);
+  const GPU_BLADE = spec.fans.blade;
+  const rotorGeo = radial(bladeGeometry(GPU_BLADE), spec.fans.blades);
   const ringShape = new THREE.Shape(); ringShape.absarc(0, 0, FAN_R, 0, TAU, false); ringShape.holes.push(circle(0, 0, FAN_R - 0.13));
   const ringGeo = new THREE.ExtrudeGeometry(ringShape, { depth: 0.8, bevelEnabled: false, curveSegments: 72 }).translate(0, 0, -0.62);
-  for (const m of [1, -1]) {
-    const holder = new THREE.Group(); gpu.add(holder);
-    holder.rotation.x = -Math.PI / 2; holder.position.set(0, 0.86, -m * FAN_S);
-    const rotor = new THREE.Group(); rotor.userData.dynamic = true; holder.add(rotor);
-    const crisp = add(rotorGeo, C.blade, 0, 0, 0, rotor);
-    add(ringGeo, C.blade, 0, 0, 0, rotor);
-    cyl(2.05, 2.05, 1.44, 48, C.blade, 0, 0, -0.02, 'z', rotor);
-    add(new THREE.CircleGeometry(1.84, 48), C.spun, 0, 0, -0.746, rotor).rotation.y = Math.PI;
-    fanBlur(rotor, [crisp], C.blade, GPU_BLADE, 7, false);
-    spinner(rotor, 110 + Math.random() * 10, 'gpu', 7);   // its power-on whirl, about 1,000 RPM
-  }
+  for (const m of [1, -1]) fanRotor(gpu, {
+    at: [0, 0.86, -m * FAN_S],
+    rotor: rotor => {
+      const crisp = add(rotorGeo, C.blade, 0, 0, 0, rotor);
+      add(ringGeo, C.blade, 0, 0, 0, rotor);
+      cyl(2.05, 2.05, 1.44, 48, C.blade, 0, 0, -0.02, 'z', rotor);
+      add(new THREE.CircleGeometry(1.84, 48), C.spun, 0, 0, -0.746, rotor).rotation.y = Math.PI;
+      return { crisp, mat: C.blade };
+    },
+    blade: GPU_BLADE, blades: spec.fans.blades, mirror: false, kind: 'gpu',
+    speed: () => spec.fans.speed[0] + Math.random() * spec.fans.speed[1],   // its power-on whirl, about 1,000 RPM
+  });
 
   // white accent light tucked under the V edges of both loops, on both faces (static white, logo-style)
   for (const m of [1, -1]) for (const y of [0.2, GT - 0.18]) {
@@ -2354,7 +2878,7 @@ let GPU_FOCUS;
       decal(new THREE.ShapeGeometry(roundedRect(len + grow, wid + grow, (wid + grow) / 2), 6), mat, side * (capTop + o), y, s, [0, 0, 1], [0, -side, 0]);
   };
   for (const y of [1.15, 1.8]) { slot(8.3, 0.3, -1.45, y, -1); slot(9.6, 0.3, 0, y, 1); }
-  const SOCK = { s: 3.75, t: 5.85 };                      // socket face centre; it faces up and toward the tail at 45°
+  const SOCK = spec.socket;                     // socket face centre; it faces up and toward the tail at 45°
   decal(new THREE.ShapeGeometry(roundedRect(2.3, 2.5, 0.25), 4), C.void, -capTop - 0.004, GT / 2, SOCK.s + 0.57, [0, 0, 1], [0, 1, 0]);   // pocket mouth
   // back face: "RTX 5080" (about 38 mm long, 6 mm caps) printed in the top triangle along the bracket-side arm,
   // from near the top edge toward the waist, reading once installed; stays inside the cap's flat face (t < 6.33)
@@ -2369,87 +2893,249 @@ let GPU_FOCUS;
     cyl(0.2, 0.2, 0.06, 20, C.darkMetal, -t, 1.05, hz + 0.01, 'z', gpu);
     cyl(0.08, 0.08, 0.02, 6, C.void, -t, 1.05, hz + 0.045, 'z', gpu);
   }
-  // PCIe 5.0 x16 edge on its small daughterboard, plugged into PCIE1
-  {
-    const s0 = boardZ(PCIE1.u0) - gcz, s1 = boardZ(PCIE1.u1) - gcz, py = boardY((PCIE1.v0 + PCIE1.v1) / 2) - gy;
-    box(1.2, 0.16, s1 - s0, C.inner, hx + 0.3, py, (s0 + s1) / 2, gpu);
-    for (const sg of [1, -1]) {
-      const g = new THREE.PlaneGeometry(s1 - s0, 0.8), uv = g.attributes.uv;
-      if (sg < 0) for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));   // 11-pin segment at the bracket end on both sides
-      decal(g, C.pcb, hx + 0.48, py + sg * 0.082, (s0 + s1) / 2, [0, 0, sg], [1, 0, 0]);
-    }
-  }
+  gpuPcieEdge(gpu, { gcz, gy, hx }, mounts, C);   // PCIe 5.0 x16 edge on its small daughterboard, plugged into PCIE1
 
   // I/O bracket, built in root coordinates: matte black, raised bezel plate, DP 2.1b × 3 + HDMI 2.1b
   const R = new THREE.Group(); R.position.set(-gcx, -gy, -gcz); gpu.add(R);
-  {
-    const BZ = GPU_BAY.bracketZ, PY = 21.4;              // port row sits toward the backplate side
-    const ports = [[-8.6, 1], [-6.4, 1], [-4.2, 1], [-1.9, 0]];   // x, DisplayPort?  (HDMI nearest the slot)
-    const port = (x, dp, grow, P = THREE.Path) => {
-      const w = (dp ? 0.84 : 0.76) + grow, h = 0.29 + grow, c = 0.19 + grow * 0.4;
-      return filletPoly(dp
-        ? [[x - w, PY - h, 0.03], [x + w - c, PY - h, 0.03], [x + w, PY - h + c, 0.03], [x + w, PY + h, 0.03], [x - w, PY + h, 0.03]]
-        : [[x - w + c, PY - h, 0.03], [x + w - c, PY - h, 0.03], [x + w, PY - h + c, 0.03], [x + w, PY + h, 0.03], [x - w, PY + h, 0.03], [x - w, PY - h + c, 0.03]], P);
-    };
-    const plate = filletPoly([[-10.6, 18.84, 0], [2.0, 18.84, 0], [2.0, 22.9, 0], [-10.6, 22.9, 0]]);
-    const bezel = roundedRect(9.34, 1.7, 0.3, -5.36, 21.88);
-    for (const [x, dp] of ports) { plate.holes.push(port(x, dp, 0.03)); bezel.holes.push(port(x, dp, 0.03)); }
-    add(new THREE.ExtrudeGeometry(plate, { depth: 0.1, bevelEnabled: false }), C.bracket, 0, 0, BZ - 0.05, R);
-    add(new THREE.ExtrudeGeometry(bezel, { depth: 0.1, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 3, curveSegments: 6 }), C.bracket, 0, 0, BZ - 0.18, R);
-    for (const [x, dp] of ports) {
-      const sh = port(x, dp, 0, THREE.Shape);
-      sh.holes.push(port(x, dp, -0.06));
-      add(new THREE.ExtrudeGeometry(sh, { depth: 1.0, bevelEnabled: false }), C.portShell, 0, 0, BZ - 0.2, R);
-      box(dp ? 1.68 : 1.52, 0.58, 0.05, C.void, x, PY, BZ + 0.6, R);
-      box(dp ? 1.2 : 1.06, 0.14, 0.75, M.plastic, x, PY, BZ + 0.25, R);
-    }
-    for (const x of [-9.62, -1.13]) for (const y of [19.5, 22.23]) cyl(0.16, 0.16, 0.06, 16, C.bracket, x, y, y > 21 ? BZ - 0.23 : BZ - 0.07, 'z', R);
-  }
+  gpuBracket(R, spec, mounts, C);
 
+  return { group: gpu, focus, anchors: {
+    body: { min: [gcx - hx, gy, gcz - hz], max: [gcx + hx, gy + GT, gcz + hz] },
+    top: gy + GT, edgeX: gcx - hx, bottom: gy,
+    socket: { p: [gcx - SOCK.t, gy + GT / 2, gcz + SOCK.s], n: [-Math.SQRT1_2, 0, Math.SQRT1_2] },
+  } };
+}
+// the I/O materials every card shares: inner frame, black void, bracket, port shells and the gold-finger edge
+function gpuIoMats(kit) {
+  const fingerMap = kit.canvasTex(1024, 64, (g, w, h) => {    // PCIe x16 edge: 11 + 71 gold fingers, 1 mm pitch
+    g.fillStyle = '#101611'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#c9a646';
+    for (let i = 0; i < 82; i++) g.fillRect(4 + i * 11.4 + (i >= 11 ? 23 : 0), 0, 8, h - 12);
+  });
+  const io = {
+    inner: kit.std({ color: 0x0e0f11, roughness: 0.65, metalness: 0.2 }),
+    void: kit.std({ color: 0x030304, roughness: 0.95 }),
+    bracket: kit.std({ color: 0x141517, metalness: 0.5, roughness: 0.55 }),
+    portShell: kit.std({ color: 0x141517, metalness: 0.6, roughness: 0.45 }),     // black-plated DP/HDMI shells
+    pcb: kit.std({ map: fingerMap, metalness: 0.6, roughness: 0.35 }),
+  };
+  io.portShell.userData.env = 0.15;
+  return io;
+}
+// PCIe 5.0 x16 edge on its small daughterboard, plugged into mounts.pcie1; gcz, gy, hx are the card's centre z, bottom y and half height
+function gpuPcieEdge(parent, { gcz, gy, hx }, mounts, mats) {
+  const P = mounts.pcie1, s0 = P.z0 - gcz, s1 = P.z1 - gcz, py = P.yMid - gy;
+  box(1.2, 0.16, s1 - s0, mats.inner, hx + 0.3, py, (s0 + s1) / 2, parent);
+  for (const sg of [1, -1]) {
+    const g = new THREE.PlaneGeometry(s1 - s0, 0.8), uv = g.attributes.uv;
+    if (sg < 0) for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));   // 11-pin segment at the bracket end on both sides
+    flatDecal(g, mats.pcb, hx + 0.48, py + sg * 0.082, (s0 + s1) / 2, [0, 0, sg], [1, 0, 0], parent);
+  }
+}
+// I/O bracket, built in root coordinates under the counter group R: matte black, raised bezel plate, ports from spec.bracket
+function gpuBracket(R, spec, mounts, mats) {
+  const BZ = mounts.gpuBay.bracketZ, PY = spec.bracket.portY;              // port row sits toward the backplate side
+  const ports = spec.bracket.ports;   // x, DisplayPort?  (HDMI nearest the slot)
+  const port = (x, dp, grow, P = THREE.Path) => {
+    const w = (dp ? 0.84 : 0.76) + grow, h = 0.29 + grow, c = 0.19 + grow * 0.4;
+    return filletPoly(dp
+      ? [[x - w, PY - h, 0.03], [x + w - c, PY - h, 0.03], [x + w, PY - h + c, 0.03], [x + w, PY + h, 0.03], [x - w, PY + h, 0.03]]
+      : [[x - w + c, PY - h, 0.03], [x + w - c, PY - h, 0.03], [x + w, PY - h + c, 0.03], [x + w, PY + h, 0.03], [x - w, PY + h, 0.03], [x - w, PY - h + c, 0.03]], P);
+  };
+  const plate = filletPoly([[-10.6, 18.84, 0], [2.0, 18.84, 0], [2.0, 22.9, 0], [-10.6, 22.9, 0]]);
+  const bezel = roundedRect(9.34, 1.7, 0.3, -5.36, 21.88);
+  for (const [x, dp] of ports) { plate.holes.push(port(x, dp, 0.03)); bezel.holes.push(port(x, dp, 0.03)); }
+  add(new THREE.ExtrudeGeometry(plate, { depth: 0.1, bevelEnabled: false }), mats.bracket, 0, 0, BZ - 0.05, R);
+  add(new THREE.ExtrudeGeometry(bezel, { depth: 0.1, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 3, curveSegments: 6 }), mats.bracket, 0, 0, BZ - 0.18, R);
+  for (const [x, dp] of ports) {
+    const sh = port(x, dp, 0, THREE.Shape);
+    sh.holes.push(port(x, dp, -0.06));
+    add(new THREE.ExtrudeGeometry(sh, { depth: 1.0, bevelEnabled: false }), mats.portShell, 0, 0, BZ - 0.2, R);
+    box(dp ? 1.68 : 1.52, 0.58, 0.05, mats.void, x, PY, BZ + 0.6, R);
+    box(dp ? 1.2 : 1.06, 0.14, 0.75, M.plastic, x, PY, BZ + 0.25, R);
+  }
+  for (const x of [-9.62, -1.13]) for (const y of [19.5, 22.23]) cyl(0.16, 0.16, 0.06, 16, mats.bracket, x, y, y > 21 ? BZ - 0.23 : BZ - 0.07, 'z', R);
+}
+// A generic partner card: flat shroud with axial fans, the fin stack showing between shroud and backplate, a tail vent
+// in the backplate, an edge 12V-2x6 socket facing the glass, an LED strip and a small print. No partner logo.
+function buildGpuAxial(spec, mounts, kit) {
+  if (spec.bracketSlots !== 2) throw new Error(`${spec.id}: only 2-slot brackets are modelled; the chassis slot covers are fixed`);
+  if (spec.socket.side !== 'edge') throw new Error(`${spec.id}: the axial builder models only an edge 12V-2x6 socket (socket.side 'edge')`);
+  if (!spec.print) throw new Error(`${spec.id}: the axial builder needs spec.print (the small text on the glass-side band)`);
+  const B = mounts.gpuBay, { length: GL, height: GH, thickness: GT } = spec.size, hx = GH / 2, hz = GL / 2;
+  const gcx = B.slotEdgeX - hx, gcz = B.rearZ + hz, gy = B.top - GT;
+  const F = spec.fans, R = F.radius, SH = 0.9, finY0 = SH + 0.1, finY1 = GT - 0.4;
+  const finMap = kit.canvasTex(256, 16, g => {
+    g.fillStyle = '#0d0e10'; g.fillRect(0, 0, 256, 16);
+    g.fillStyle = '#8e9297'; for (let x = 0; x < 256; x += 4) g.fillRect(x, 0, 1, 16);
+  }, { repeat: [GL / 13, 1] });
+  const printA = kit.canvasTex(512, 64, (g, w, h) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);   // opaque black ground: an alpha map reads green, and a transparent canvas uploads white fringes
+    g.fillStyle = '#fff'; kit.fitText(g, spec.print, w / 2, h / 2 + 2, '700 44px Archivo, Arial, sans-serif', 4, 480);
+  }, { srgb: false });
+  const A = {
+    shroud: kit.micro(kit.std({ color: 0x1d1f22, roughness: 0.5, metalness: 0.15 }), MOLDED),
+    plate: kit.micro(kit.std({ color: 0x24262a, roughness: 0.38, metalness: 0.75 }), BRUSH),
+    vent: kit.tag(kit.std({ color: 0x1b1c1f, metalness: 0.7, roughness: 0.45, alphaMap: M.grille.alphaMap, alphaTest: 0.5, alphaToCoverage: true, side: THREE.DoubleSide }), 2),
+    fins: kit.own(new THREE.MeshLambertMaterial({ map: finMap })),
+    pipe: kit.std({ color: 0xc9c9c4, roughness: 0.3, metalness: 1 }),
+    blade: kit.std({ color: 0x3c3e44, roughness: 0.5, metalness: 0, side: THREE.DoubleSide }),   // lighter than the shroud so the fans read against it
+    hub: kit.std({ color: 0x9a9da3, roughness: 0.3, metalness: 0.85 }),
+    pcb: kit.std({ color: 0x0f1411, roughness: 0.7 }),
+    socket: kit.std({ color: 0x141416, roughness: 0.6 }),
+    led: kit.statusLed(kit.std({ color: 0x2a2c30, roughness: 0.4, emissive: 0xffffff }), 1.2, 'gpu'),   // dark when unlit, as on the FE
+    print: kit.decalMat({ color: 0xc9ccd1, roughness: 0.6, alphaMap: printA }),
+  };
+  const io = gpuIoMats(kit);
+  const gpu = kit.part(spec.name, spec.spec); gpu.position.set(gcx, gy, gcz);
+  // shroud: one plate under the fin stack with a round opening per fan. Shape x → card length (z), shape y → card height (x),
+  // extrusion → +y; the mesh is turned rather than the geometry, so bake's smoothExtrusion sees a plain extrusion
+  const zs = Array.from({ length: F.count }, (_, i) => (i - (F.count - 1) / 2) * F.pitch);
+  const sh = kit.roundedRect(GL, GH, 0.7);
+  for (const z of zs) sh.holes.push(kit.circle(z, 0, R + 0.22));
+  const shroud = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, { depth: SH - 0.16, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.08, bevelSegments: 2, curveSegments: 48 }), A.shroud);
+  shroud.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)));
+  shroud.position.y = 0.08; gpu.add(shroud);
+  // fin stack, PCB, backplate with a perforated tail vent over the flow-through end
+  kit.box(GH - 0.6, finY1 - finY0, GL - 1.0, A.fins, 0, (finY0 + finY1) / 2, 0, gpu);
+  // three heat pipes leave the fin stack, run along its glass-side edge in the 0.6 cm gap and bend back in at the tail,
+  // inside the card's envelope (x ≥ −hx) and below the socket
+  for (const [i, y] of [1.7, 2.6, 3.5].entries()) {
+    const ex = -hx + 0.35, ix = -hx + 1.7 + i * 0.5;
+    const curve = new THREE.CatmullRomCurve3([[ix, y, -9 + i * 1.5], [ex + 0.4, y, -5 + i * 1.5], [ex, y, -2 + i], [ex, y, 11], [ex + 0.4, y, 13.2 - i * 0.3], [ix, y, 14.6 - i * 0.3]]
+      .map(p => new THREE.Vector3(...p)), false, 'centripetal');
+    kit.add(new THREE.TubeGeometry(curve, 64, 0.3, 12, false), A.pipe, 0, 0, 0, gpu);
+  }
+  kit.box(GH - 0.3, 0.16, GL - 7.4, A.pcb, 0, GT - 0.3, -3.7, gpu);
+  kit.box(GH, 0.22, GL - 7.0, A.plate, 0, GT - 0.11, -3.5, gpu, 0.08);
+  for (const s of [-1, 1]) kit.box(0.8, 0.22, 7.0, A.plate, s * (hx - 0.4), GT - 0.11, hz - 3.5, gpu);
+  kit.box(GH, 0.22, 0.6, A.plate, 0, GT - 0.11, hz - 0.3, gpu);
+  kit.box(GH - 1.6, 0.04, 6.4, A.vent, 0, GT - 0.11, hz - 3.8, gpu);
+  // glass-side edge: a band near the bracket carries the print; the LED strip runs along the shroud lip
+  const bandH = finY1 - finY0;
+  kit.box(0.3, bandH, 9.0, A.shroud, -hx + 0.15, (finY0 + finY1) / 2, -hz + 5.0, gpu);
+  const pl = kit.add(new THREE.PlaneGeometry(7.0, 0.875), A.print, -hx - 0.01, (finY0 + finY1) / 2, -hz + 5.0, gpu);
+  pl.rotation.y = -Math.PI / 2;
+  kit.box(0.06, 0.18, GL - 2.0, A.led, -hx - 0.1, SH * 0.5, 0, gpu);
+  // 12V-2x6 socket on the PCB edge, facing the glass
+  const sock = [-hx - 0.2, GT - 0.75, spec.socket.s];
+  kit.box(0.3, 0.8, 2.2, A.socket, -hx + 0.15, sock[1], sock[2], gpu, 0.05);   // 0.3 wide: ends at the fin box edge (−hx + 0.3), no overlap
+  // fans: framed by a stator ring under each opening; blades with a tip ring when the spec asks for one
+  const bladeGeo = kit.radial(kit.bladeGeometry(F.blade), F.blades);
+  for (const z of zs) kit.fanRotor(gpu, {
+    at: [0, SH - 0.1, z],
+    holder: h => { kit.add(new THREE.RingGeometry(R + 0.05, R + 0.22, 64), A.shroud, 0, 0, -0.85, h).rotation.y = Math.PI; },
+    rotor: r => {
+      const crisp = kit.add(bladeGeo, A.blade, 0, 0, 0, r);
+      if (F.ring) kit.cyl(R + 0.04, R + 0.04, 0.5, 64, A.blade, 0, 0, -0.35, 'z', r, true);
+      kit.cyl(1.45, 1.45, 1.0, 40, A.hub, 0, 0, -0.3, 'z', r);
+      kit.add(new THREE.CircleGeometry(1.35, 40), A.hub, 0, 0, -0.81, r).rotation.y = Math.PI;
+      return { crisp, mat: A.blade };
+    },
+    blade: F.blade, blades: F.blades, mirror: false, kind: 'gpu',
+    speed: () => F.speed[0] + Math.random() * F.speed[1],
+  });
+  // bracket and PCIe edge: shared with the FE. The edge is card-local; the bracket is built in root coordinates
+  // through a counter-translated group, as on the FE
+  gpuPcieEdge(gpu, { gcz, gy, hx }, mounts, io);
+  const R0 = new THREE.Group(); R0.position.set(-gcx, -gy, -gcz); gpu.add(R0);
+  gpuBracket(R0, spec, mounts, io);
+  const focus = new THREE.Vector3(gcx, gy + GT / 2 + root.position.y, gcz + 1.5);
+  return { group: gpu, focus, anchors: {
+    body: { min: [gcx - hx, gy, gcz - hz], max: [gcx + hx, gy + GT, gcz + hz] },
+    top: gy + GT, edgeX: gcx - hx, bottom: gy,
+    socket: { p: [gcx + sock[0], gy + sock[1], gcz + sock[2]], n: [-1, 0, 0] },
+  } };
+}
+// the 12V-2x6 route: out of the plug, down the card's glass-side edge past its bottom, then low and level to the first
+// grommet. Offsets are the FE path's own, measured from the card edge (or from just outside an edge-facing plug), the
+// card's mid and bottom, the socket's z and the grommet. minX is the outermost x a control point of the drop may take
+// (buildGpuCable sets it so the cable stays clear of the glass).
+function cableRoute({ sock, n, body, grommet, minX = -Infinity }) {
+  const edge = body.min[0], mid = (body.min[1] + body.max[1]) / 2, bottom = body.min[1];
+  const p0 = sock.map((v, i) => v + 2 * n[i]);
+  const ex = Math.max(Math.min(edge, p0[0] + 1.0), minX + 1.85);   // the drop's outermost points sit at ex - 1.85
+  const G = [grommet.x - 0.05, grommet.y, grommet.z];
+  // the first bend continues straight out of the plug, along n (k = 2√2 − 2 puts the FE's point at (−12.1, −2.15) within
+  // float), level with the plug: at the socket's height, which is the card's mid on the FE, so an axial card (socket near
+  // its top) leaves the plug level too instead of kinking down
+  const k = 2 * Math.SQRT2 - 2;
+  const p2 = [ex - 1.7, mid - 1.0, sock[2] + 2.7];
+  // a socket above the card's mid (an axial card's, near its top) drops further to the second point, so the first bend
+  // moves toward it in proportion: 0.115 per cm of drop (0.2 for the 5070 Ti), which keeps the tightest bend above the
+  // ribbon's half-width. The FE's socket is at its mid: no change there.
+  const a = Math.min(0.3, 0.115 * Math.max(0, sock[1] - mid)), p1 = [p0[0] + k * n[0], sock[1] + 0.15, p0[2] + k * n[2]].map((v, i) => v + (p2[i] - v) * a);
+  p1[0] = Math.max(p1[0], minX);
+  return [p0, p1, p2,
+    [ex - 1.85, bottom - 1.0, sock[2] + 3.35], [ex - 1.2, bottom - 3.3, sock[2] + 4.45],
+    [G[0] - 11.45, G[1] + 1.1, G[2] - 2.5], [G[0] - 5.15, G[1] + 0.2, G[2] - 0.65], G];
+}
+// the cable's route with its clamp against the glass, as a pure function of the card (so a check can feed it a card moved
+// toward the glass). The cable's outermost surface (ribbon strands and comb) stays 0.1 cm inside the glass: the route is
+// pulled in by exactly what it overshoots, so a card that already clears the glass keeps its route. First through the
+// drop's outermost points (cableRoute's minX); if the overshoot comes from the later bends, those move by what is left.
+// Returns { pts, frames, comb (the frame the comb sits on), over (cm still past the limit, <= 0 when it clears) }.
+function fitGpuCable(spec, mounts, { sock, n, body }, clamp = true) {
+  const { cols, rows, sp, r } = spec.ribbon, half = (cols - 1) / 2 * sp + r, limit = mounts.glass.innerX + 0.1;
+  // the comb sits on the frame nearest the route's fourth point (just below the card's bottom edge), so it follows the route
+  const combFrame = (pts, frames) => { const at = new THREE.Vector3(...pts[3]); return frames.reduce((a, f) => f[0].distanceToSquared(at) < a[0].distanceToSquared(at) ? f : a); };
+  const combReachX = ([p, up, side, tan]) => p.x - 1.15 * Math.abs(up.x) - 0.4 * Math.abs(side.x) - 0.21 * Math.abs(tan.x);
+  const measure = pts => {
+    const frames = ribbonFrames(pts, spec.ups), comb = combFrame(pts, frames);
+    return { pts, frames, comb, over: limit - Math.min(ribbonMinX(frames, cols, rows, sp, r), combReachX(comb)) };
+  };
+  const route = minX => cableRoute({ sock, n, body, grommet: mounts.grommets[0], minX });
+  let m = measure(route(-Infinity));
+  for (let i = 0, minX; clamp && m.over > 0 && i < 4; i++) {
+    minX = Math.min(m.pts[1][0], m.pts[2][0], m.pts[3][0], m.pts[4][0]) + m.over + 0.005;
+    m = measure(route(minX));
+  }
+  // stage 2 is a fallback no shipped card reaches (stage 1 fixes every one, and so does the clamp control): it shifts the later
+  // bends when a socket's overshoot comes from them and not from the drop. If both stages run out, the `over > 0` console.warn in
+  // the cable builder is the guard.
+  for (let i = 0; clamp && m.over > 0 && i < 4; i++)
+    m = measure(m.pts.map((p, k) => k >= 1 && k <= 6 && p[0] < limit + 2 * half ? [p[0] + m.over + 0.005, p[1], p[2]] : p));
+  return m;
+}
+// the GPU's 12V-2x6 cable: from the card's socket anchor, along the card's glass-side edge, to the first grommet
+function buildGpuCable(spec, mounts, kit) {
   // 12V-2x6 cable: plug seated at 45° in the pocket, leaves toward the glass, drops past the card's
   // top edge and runs underneath to the lower tray grommet
-  const gpuCable = part('Corsair Type 5 12V-2x6 cable', 'Native 16-pin (12+4) from the RM1000x SHIFT · 600 W · PVC jacketed');
+  const gpuCable = kit.part(spec.name, spec.spec);
   const gpuWire = std({ color: 0x0d0d0e, roughness: 0.42, metalness: 0 });
-  const N = new THREE.Vector3(-Math.SQRT1_2, 0, Math.SQRT1_2);   // plug axis in root space
-  const sock = new THREE.Vector3(gcx - SOCK.t, gy + GT / 2, gcz + SOCK.s);
+  const G = mounts.anchors.gpu.socket;
+  const N = new THREE.Vector3(...G.n);   // plug axis in root space
+  const sock = new THREE.Vector3(...G.p);
   {
     const plug = new THREE.Group(); gpuCable.add(plug);
     plug.position.copy(sock).addScaledVector(N, 1.0);
-    plug.rotation.y = -Math.PI / 4;
+    plug.rotation.y = Math.atan2(G.n[0], G.n[2]);
     box(1.25, 2.2, 2.0, M.plastic, 0, 0, 0, plug, 0.08);
     box(0.24, 0.7, 1.0, M.plastic, -0.68, 0, 0.2, plug, 0.05);   // latch
   }
-  // flat bundle of wires: the wide side follows per-point "up" hints, kept square to the run
-  const ribbon = (parent, pts, ups, cols, rows, sp, r, mat) => {
-    const c = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)), false, 'centripetal');
-    const n = pts.length - 1, U = ups.map(u => new THREE.Vector3(...u).normalize()), frames = [];
-    for (let i = 0; i <= 72; i++) {
-      const t = i / 72, p = c.getPoint(t), tan = c.getTangent(t);
-      const f = Math.min(t * n, n - 1e-6), k = Math.floor(f), e = f - k;
-      const up = U[k].clone().lerp(U[k + 1], e * e * (3 - 2 * e));
-      up.addScaledVector(tan, -up.dot(tan)).normalize();
-      frames.push([p, up, new THREE.Vector3().crossVectors(tan, up), tan]);
-    }
-    const geos = [];
-    for (let a = 0; a < cols; a++) for (let b = 0; b < rows; b++) {
-      const oa = (a - (cols - 1) / 2) * sp, ob = (b - (rows - 1) / 2) * sp;
-      const strand = new THREE.CatmullRomCurve3(frames.map(([p, up, side]) => p.clone().addScaledVector(up, oa).addScaledVector(side, ob)));
-      geos.push(new THREE.TubeGeometry(strand, 90, r, 8, false));
-    }
-    add(mergeGeometries(geos), mat, 0, 0, 0, parent);
-    return frames;
-  };
-  const p0 = sock.clone().addScaledVector(N, 2.0);
-  const frames = ribbon(gpuCable,
-    [p0.toArray(), [-12.1, 21.05, -2.15], [-12.8, 19.9, -1.45], [-12.95, 17.9, -0.8], [-12.3, 15.6, 0.3], [-7.5, 13.3, 3.1], [-1.2, 12.4, 4.95], [3.95, 12.2, 5.6]],
-    [[0, 1, 0], [0, 1, 0], [0, 0.5, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]], 6, 2, 0.32, 0.13, gpuWire);
+  const { cols, rows, sp, r } = spec.ribbon, half = (cols - 1) / 2 * sp + r;
+  const { pts, comb: combF, over } = fitGpuCable(spec, mounts, { sock: G.p, n: G.n, body: mounts.anchors.gpu.body });
+  if (over > 0) console.warn(`gpuCable: the route could not be pulled ${over.toFixed(3)} cm further from the glass`);
+  ribbon(gpuCable, pts, spec.ups, cols, rows, sp, r, gpuWire);
   {   // cable comb on the drop
-    const [p, up, side, tan] = frames[31];
+    const [p, up, side, tan] = combF;
     const comb = box(2.3, 0.8, 0.42, std({ color: 0x111214, roughness: 0.55 }), p.x, p.y, p.z, gpuCable, 0.08);
     comb.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(up, side, tan));
   }
+  return { group: gpuCable, anchors: { route: pts, r: half } };
 }
+BUILDERS.gpu = { fe: buildGpuFE, axial: buildGpuAxial };
+BUILDERS.gpuCable = { ribbon: buildGpuCable };
+parts.mount('gpu');
+GPU_FOCUS = mounted.gpu.focus;
+parts.mount('gpuCable');
 // ===== END SECTION gpu =====
+
+// ===== SECTION routing: parts that run between other parts, rebuilt when either end is swapped =====
+DEPENDS.gpu = ['gpuCable', 'hoses'];
+DEPENDS.aio = ['hoses'];
+parts.mount('hoses');
+// ===== END SECTION routing =====
 
 // ===== SECTION casefans: bottom intake and rear exhaust fans =====
 // NZXT F120 RGB Duo (RF-D12SF-B1 black, RF-D12SF-W1 white): 120 × 120 × 25 mm, seven smoke blades, a frosted
@@ -3063,11 +3749,12 @@ function areaLight(w, h, x, y, z, rx, ry) {
   scene.add(l);
   return l;
 }
-const glow = [
+const glow = glowList;   // one array from the start, so a part may own entries
+glow.push(
   { light: areaLight(12, 37, INTAKE_FANS[1][0], 3.5, INTAKE_FANS[1][2], Math.PI / 2, 0), base: 3.0, phase: 0.12 },    // intake row, shining up
   { light: areaLight(12, 37, RAD_BAY.x, RAD_BAY.fanFace - 0.2, 0, -Math.PI / 2, 0), base: 2.4, phase: 0.67 },   // radiator fans, shining down
   { light: areaLight(11, 11, EXHAUST_FAN[0], EXHAUST_FAN[1], EXHAUST_FAN[2] + 1.35, 0, Math.PI), base: 2.0, phase: 0.5 },  // rear exhaust, shining forward
-];
+);
 
 // ---------- frozen floor and sky ----------
 // Sky: a gradient dome (deep navy-slate overhead, icy haze at the horizon) drawn first; the fog ends in the same horizon colour.
@@ -3248,32 +3935,45 @@ function bake(group) {
     if (merged) group.add(new THREE.Mesh(mergeVertices(merged, 1e-5), mat));
   }
 }
-root.updateMatrixWorld(true);
-for (const s of spinners) bake(s.obj);
-const partGroups = [];
-root.traverse(o => { if (o.userData.part) partGroups.push(o); });
-for (const g of partGroups) bake(g);
+// spinner rotors first (their blades merge inside the dynamic rotor), then every part group under top
+function bakeTree(top, spins) {
+  top.updateMatrixWorld(true);
+  for (const s of spins) bake(s.obj);
+  const groups = [];
+  top.traverse(o => { if (o.userData.part) groups.push(o); });
+  for (const g of groups) bake(g);
+  return groups;
+}
+const partGroups = bakeTree(root, spinners);
 bake(glassL); bake(glassF);
 
-// shadows, environment and pick list
-const pickables = [];
-const envMats = new Set();
-root.traverse(o => {
-  if (!o.isMesh) return;
-  let inGlass = false;
-  for (let p = o; p; p = p.parent) if (p.userData.glass) inGlass = true;
-  const mat = o.material;
-  o.castShadow = !mat.userData.noShadow && !(mat.transparent && mat.opacity < 0.5);
-  o.receiveShadow = !mat.userData.noShadow;
-  if (inGlass) o.userData.noAO = true; else pickables.push(o);
-  envMats.add(mat);
-});
-for (const s of spinners) if (s.blur) s.blur.disc.castShadow = false;   // a veil casts no hard disc of shadow; it still takes one
-for (const m of [...envMats, M.floor]) {
-  if (!m.isMeshStandardMaterial) continue;
-  m.envMap = envTex;
-  m.envMapIntensity = m.userData.env ?? 1;
+// shadows, environment and pick list (pickables and envMats are declared with the part engine runtime, above)
+// shadow flags, the pick list and the env set for every mesh under top; returns the materials it found and the meshes to pick
+function prepMeshes(top, spins) {
+  const mats = new Set(), picks = [];
+  top.traverse(o => {
+    if (!o.isMesh) return;
+    let inGlass = false;
+    for (let p = o; p; p = p.parent) if (p.userData.glass) inGlass = true;
+    const mat = o.material;
+    o.castShadow = !mat.userData.noShadow && !(mat.transparent && mat.opacity < 0.5);
+    o.receiveShadow = !mat.userData.noShadow;
+    if (inGlass) o.userData.noAO = true; else picks.push(o);
+    envMats.add(mat); mats.add(mat);
+  });
+  for (const s of spins) if (s.blur) s.blur.disc.castShadow = false;   // a veil casts no hard disc of shadow; it still takes one
+  return { mats, picks };
 }
+// the env pass for a swapped-in part's materials: the same body as the load-time env loop below
+function applyEnv(mats) {
+  for (const m of mats) {
+    if (!m.isMeshStandardMaterial) continue;
+    m.envMap = envTex;
+    m.envMapIntensity = m.userData.env ?? 1;
+  }
+}
+pickables.push(...prepMeshes(root, spinners).picks);
+applyEnv([...envMats, M.floor]);
 function partOf(o) { while (o) { if (o.userData.part) return o.userData.part; o = o.parent; } return null; }
 
 // ---------- lighting and power ----------
@@ -3674,8 +4374,8 @@ function showTip(p, x, y) {
   const r = stage.getBoundingClientRect();
   tip.hidden = false;
   const tw = tip.offsetWidth, th = tip.offsetHeight;
-  tip.style.left = Math.min(x - r.left, r.width - tw - 28) + 'px';
-  tip.style.top = Math.min(y - r.top, r.height - th - 28) + 'px';
+  tip.style.left = Math.max(8, Math.min(x - r.left, r.width - tw - 28)) + 'px';
+  tip.style.top = Math.max(8, Math.min(y - r.top, r.height - th - 28)) + 'px';
 }
 function pick(x, y) {
   const r = renderer.domElement.getBoundingClientRect();
@@ -3732,9 +4432,10 @@ function applyTier() {
 // what the frame shows, as numbers: when none of them moved past rounding noise since the last drawn frame, the frame is
 // skipped. Comparing against the drawn frame (not the previous one) lets a slow drift, like orbit damping, still add up
 let frameSig = [], sigNow = [], sigAt = 0, sigChanged = false, lastDrawn = false;
-const dynTex = [...canvasTextures, lcdTex];
+const dynTex = { *[Symbol.iterator]() { yield* canvasTextures; if (lcdTex) yield lcdTex; } };   // live: parts add and remove canvases; no LCD head, no lcdTex
 function sig(v, tol = 1e-6) { const o = frameSig[sigAt]; if (!(Math.abs(v - o) <= tol * (1 + Math.abs(o)))) sigChanged = true; sigNow[sigAt++] = v; }
 function sigColor(c) { sig(c.r); sig(c.g); sig(c.b); }
+function invalidate() { renderer.shadowMap.needsUpdate = true; aoPass.dirty = true; frameEpoch++; }
 function frameChanged() {
   sigAt = 0; sigChanged = false;
   sig(frameEpoch, 0);
@@ -3832,8 +4533,23 @@ renderer.compileAsync(scene, camera).catch(() => {}).finally(() => requestAnimat
 // embed mode (?embed): a host page such as the storefront hides this page's UI and drives the model with postMessage
 if (new URLSearchParams(location.search).has('embed')) {
   document.body.classList.add('embed');
-  const post = type => parent.postMessage({ source: 'glass-tower', type, phase: PWR.phase, finish, mode }, '*');
+  const post = type => parent.postMessage({ source: 'glass-tower', type, phase: PWR.phase, finish, mode, parts: parts.ids() }, '*');
+  controls.addEventListener('start', () => post('interact'));   // every drag or wheel: the store fades its drag hint and clears the gallery marker
   embedNotify = () => post('state');
+  // Camera presets the store's gallery may ask for besides 'home' and 'gpu': the same poses tools/still.js renders (target, direction, distance in cm)
+  const EMBED_VIEWS = {
+    pump: { t: [0.5, 32.1, -9.0], d: [-0.9, 0.25, 0.35], r: 36 },
+    radiator: { t: [-7.3, 43.0, -1], d: [-0.75, -0.42, 0.5], r: 80 },
+    board: { t: [0, 30, -8], d: [-0.92, 0.2, 0.33], r: 70 },
+    rear_close: { t: [2, 22, -23.5], d: [0.3, 0.15, -0.94], r: 70 },
+  };
+  const flyToView = V => {
+    const target = new THREE.Vector3(V.t[0], V.t[1] + root.position.y - 1.6, V.t[2]);
+    gpuBtn.setAttribute('aria-pressed', 'false');
+    setSpin(false);
+    userMoved = true;
+    flyTo(target.clone().addScaledVector(new THREE.Vector3(...V.d).normalize(), V.r), target);
+  };
   addEventListener('message', e => {
     const m = e.data;
     if (!m || m.target !== 'glass-tower') return;
@@ -3842,13 +4558,17 @@ if (new URLSearchParams(location.search).has('embed')) {
     if (m.power === 'toggle') pressPower();
     if (m.view === 'gpu' && gpuBtn.getAttribute('aria-pressed') !== 'true') gpuBtn.click();
     if (m.view === 'home') document.getElementById('resetBtn').click();
+    if (typeof m.view === 'string' && Object.hasOwn(EMBED_VIEWS, m.view)) flyToView(EMBED_VIEWS[m.view]);
     if (typeof m.spin === 'boolean') setSpin(m.spin);
+    if (m.parts && typeof m.parts === 'object') want(m.parts);   // each swap that lands posts the state itself (embedNotify)
     post('state');
   });
   post('ready');
 }
 // headless render tests set window.__GT_DEBUG before load to reach the scene
 if (window.__GT_DEBUG) window.__gt = { THREE, renderer, scene, camera, controls, composer, aoPass, flyTo, setMode, setFinish, setPower, PWR, spinners, glow, root,
-  invalidate() { renderer.shadowMap.needsUpdate = true; aoPass.dirty = true; frameEpoch++; },
+  invalidate, parts, registries, MOUNTS, kit, timings: routeTimings, PART_SPECS, fitGpuCable,
+  lcdState: () => ({ off: lcdMat === LCD_OFF, tex: !!lcdTex, emissive: lcdMat.emissiveIntensity }),
+  drawCalls() { const i = renderer.info; i.autoReset = false; i.reset(); composer.render(0); const c = i.render.calls; i.autoReset = true; return c; },
   __still(s) { if (s.blur) showBlur(s.blur, s.w * SHUTTER); } };   // a still shows each rotor as a 60 Hz frame would
 </script>

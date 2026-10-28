@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360" width="480" height="360">
+<defs>
+<radialGradient id="bg" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#1f2c3b"/><stop offset="1" stop-color="#0f1319"/></radialGradient>
+<linearGradient id="deck" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a3340"/><stop offset="1" stop-color="#181d25"/></linearGradient>
+<linearGradient id="key" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b4655"/><stop offset="1" stop-color="#262e39"/></linearGradient>
+<radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#5fd4ff" stop-opacity=".3"/><stop offset="1" stop-color="#5fd4ff" stop-opacity="0"/></radialGradient>
+<g id="k"><rect width="22" height="24" rx="4"/></g>
+</defs>
+<rect width="480" height="360" fill="url(#bg)"/>
+<ellipse cx="240" cy="188" rx="210" ry="80" fill="url(#glow)"/>
+<rect x="30" y="102" width="420" height="152" rx="14" fill="url(#deck)" stroke="#3a4553" stroke-width="1.5"/>
+<g fill="url(#key)" stroke="#11151b" stroke-width="1">
+<g transform="translate(44 114)">
+<rect width="22" height="20" rx="4"/><rect x="38" width="22" height="20" rx="4"/><rect x="64" width="22" height="20" rx="4"/><rect x="90" width="22" height="20" rx="4"/><rect x="116" width="22" height="20" rx="4"/><rect x="150" width="22" height="20" rx="4"/><rect x="176" width="22" height="20" rx="4"/><rect x="202" width="22" height="20" rx="4"/><rect x="228" width="22" height="20" rx="4"/><rect x="262" width="22" height="20" rx="4"/><rect x="288" width="22" height="20" rx="4"/><rect x="314" width="22" height="20" rx="4"/><rect x="340" width="22" height="20" rx="4"/>
+</g>
+<g transform="translate(44 142)">
+<use href="#k"/><use href="#k" x="26"/><use href="#k" x="52"/><use href="#k" x="78"/><use href="#k" x="104"/><use href="#k" x="130"/><use href="#k" x="156"/><use href="#k" x="182"/><use href="#k" x="208"/><use href="#k" x="234"/><use href="#k" x="260"/><use href="#k" x="286"/><use href="#k" x="312"/><rect x="338" width="36" height="24" rx="4"/>
+</g>
+<g transform="translate(44 172)">
+<rect width="34" height="24" rx="4"/><use href="#k" x="38"/><use href="#k" x="64"/><use href="#k" x="90"/><use href="#k" x="116"/><use href="#k" x="142"/><use href="#k" x="168"/><use href="#k" x="194"/><use href="#k" x="220"/><use href="#k" x="246"/><use href="#k" x="272"/><use href="#k" x="298"/><use href="#k" x="324"/><rect x="350" width="24" height="24" rx="4"/>
+</g>
+<g transform="translate(44 202)">
+<rect width="44" height="24" rx="4"/><use href="#k" x="48"/><use href="#k" x="74"/><use href="#k" x="100"/><use href="#k" x="126"/><use href="#k" x="152"/><use href="#k" x="178"/><use href="#k" x="204"/><use href="#k" x="230"/><use href="#k" x="256"/><use href="#k" x="282"/><rect x="308" width="66" height="24" rx="4"/>
+</g>
+<g transform="translate(44 230)">
+<rect width="30" height="16" rx="4"/><rect x="34" width="30" height="16" rx="4"/><rect x="68" width="30" height="16" rx="4"/><rect x="102" width="170" height="16" rx="4"/><rect x="276" width="30" height="16" rx="4"/><rect x="310" width="30" height="16" rx="4"/><rect x="344" width="30" height="16" rx="4"/>
+</g>
+</g>
+<rect x="146" y="244" width="170" height="2" rx="1" fill="#5fd4ff" opacity=".8"/>
+<rect x="44" y="114" width="22" height="2" rx="1" fill="#5fd4ff" opacity=".9"/>
+</svg>

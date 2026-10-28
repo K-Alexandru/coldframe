@@ -10,60 +10,103 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="storefront/css/store.css">
 </head>
-<body>
+<body id="top">
 <div class="announce">Free shipping on every build · <span data-catalog="warrantyYears"></span>-year warranty · 0% APR for <span data-catalog="financeMonths"></span> months</div>
 <header class="site">
+  <button type="button" id="menuBtn" class="menu-btn" aria-label="Menu" aria-expanded="false" aria-controls="navSheet"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   <a class="wordmark" href="./"><span data-brand="name"></span></a>
-  <nav aria-label="Main"><a href="#">Gaming PCs</a><a href="#">Workstations</a><a href="#">Support</a><a href="#">Track order</a></nav>
+  <nav id="mainNav" aria-label="Main">
+    <a href="#top" aria-current="page">Gaming PCs</a>
+    <a href="#" aria-disabled="true">Workstations <span class="soon">Soon</span></a>
+    <a href="#accessories">Accessories</a>
+    <a href="#faq">Support</a>
+  </nav>
   <button id="cartBtn" class="cart-btn" aria-label="Cart"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="20" r="1.4" fill="currentColor"/><circle cx="17" cy="20" r="1.4" fill="currentColor"/></svg><span id="cartCount" hidden>0</span></button>
 </header>
-<nav class="crumbs" aria-label="Breadcrumb"><a href="#">Gaming PCs</a> / <a href="#">Glass Series</a> / <span>Glass Tower</span></nav>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="#top">Gaming PCs</a> / <span aria-current="page">Glass Tower</span></nav>
 <main>
   <section class="hero">
+    <div class="viewer-col">
     <div class="viewer-wrap">
       <iframe id="viewer" title="Interactive 3D view of your configuration" src="glass-tower/index.html?embed=1"></iframe>
       <div id="viewerTools" class="viewer-tools"></div>
       <p class="viewer-cap" id="viewerCap">Drag to rotate · scroll to zoom</p>
     </div>
+    <div id="gallery" class="gallery" role="group" aria-label="Views of the build">
+      <button type="button" class="thumb" data-view="home" aria-pressed="true"><img src="storefront/img/thumb-overview.webp" width="360" height="176" alt="The whole build, lit, in three-quarter view"><span>Overview</span></button>
+      <button type="button" class="thumb" data-view="gpu" aria-pressed="false"><img src="storefront/img/thumb-gpu.webp" width="360" height="176" alt="Close-up of the graphics card above the cooler's display"><span>Graphics card</span></button>
+      <button type="button" class="thumb" data-view="pump" aria-pressed="false"><img src="storefront/img/thumb-pump.webp" width="360" height="176" alt="The cooler's round display and RGB ring, with the sleeved hoses leaving the pump"><span>Cooler</span></button>
+      <button type="button" class="thumb" data-view="radiator" aria-pressed="false"><img src="storefront/img/thumb-radiator.webp" width="360" height="176" alt="The top-mounted 360 mm radiator and its three white-lit fans, seen from above the case"><span>Radiator</span></button>
+      <button type="button" class="thumb" data-view="board" aria-pressed="false"><img src="storefront/img/thumb-board.webp" width="360" height="176" alt="Straight across the inside of the case: the cooler's display above the graphics card"><span>Inside</span></button>
+      <button type="button" class="thumb" data-view="rear_close" aria-pressed="false"><img src="storefront/img/thumb-rear.webp" width="360" height="176" alt="The back of the case: rear fan, I/O panel and the graphics card's bracket"><span>Rear ports</span></button>
+    </div>
+    </div>
     <div class="buy">
-      <h1 id="title">Glass Tower</h1>
+      <div class="title-row"><h1 id="title">Glass Tower</h1><span class="chip-best" id="bestChip" hidden>Best seller</span></div>
       <p id="subtitle"></p>
       <a class="rating" href="#reviews"><span class="stars" aria-hidden="true">★★★★★</span> <b>4.8</b> · 312 reviews</a>
-      <div class="price-block"><div id="price" class="price"></div><div id="monthly"></div><div id="ship"></div></div>
-      <button type="button" class="primary add add-top wide" id="addTop" data-add>Add to cart · <span id="addPrice"></span></button>
-      <ul id="badges" class="badges">
-        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 7h12v9H2zM14 10h4l3 3v3h-7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.6" fill="currentColor"/><circle cx="17" cy="17.5" r="1.6" fill="currentColor"/></svg>Free shipping</li>
-        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>30-day returns</li>
-        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span><span data-catalog="warrantyYears"></span>-year warranty</span></li>
-        <li><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8.5V13l3 2M9.5 2.8h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>72-hour burn-in</li>
+      <div id="series" class="series" role="radiogroup" aria-label="Series"></div>
+      <div class="price-block"><div class="price-row"><div id="price" class="price"></div><span class="cur">CAD</span></div><div id="monthly"></div></div>
+      <p class="offer" id="offer" hidden></p>
+      <section class="build" aria-label="This build">
+        <h2>This build</h2>
+        <dl id="thisBuild" class="build-list"></dl>
+        <p id="target" class="target"></p>
+      </section>
+      <div class="actions">
+        <button type="button" class="primary add add-top" id="addTop" data-add>Add to cart · <span id="addPrice"></span></button>
+        <button type="button" class="ghost" id="customizeBtn">Customize</button>
+      </div>
+      <div id="ship"></div>
+      <ul id="trust" class="trust">
+        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="trustWarranty"></span></li>
+        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 7h12v9H2zM14 10h4l3 3v3h-7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.6" fill="currentColor"/><circle cx="17" cy="17.5" r="1.6" fill="currentColor"/></svg><span>Ships in <span data-catalog="buildDays"></span> days</span></li>
+        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>30-day returns</span></li>
       </ul>
+      <div class="disclosures">
+        <details><summary>In the box</summary><ul id="boxList" class="box-list"></ul></details>
+        <details><summary>Warranty &amp; returns</summary><p id="warrantyText"></p></details>
+      </div>
+      <h2 class="cfg-h" id="customize">Customize your build</h2>
       <div id="configurator"></div>
       <button class="primary add" data-add>Add to cart</button>
     </div>
   </section>
   <section id="perf" class="band"></section>
   <section class="band story">
+    <p class="kicker">The build</p>
     <h2>How it is built</h2>
-    <div class="story-grid">
-      <article class="story-block">
-        <p class="stat"><b>360 mm</b><span>radiator, three intake fans</span></p>
-        <h3>Tuned for airflow</h3>
-        <p>Cool air enters through the front and the glass side stays clear of cables. The radiator sits in the front, so the processor and the graphics card both draw air that has not passed over the other. Fan curves are set and tested before the build leaves us.</p>
+    <div class="story-rows">
+      <article class="story-row">
+        <figure class="story-img"><img src="storefront/img/story-airflow.webp" width="1200" height="588" loading="lazy" alt="Inside the Glass Tower, looking down past the cooler's display at the three lit intake fans in the floor"></figure>
+        <div class="story-txt">
+          <p class="stat"><b>360 mm</b><span>radiator, three intake fans</span></p>
+          <h3>Tuned for airflow</h3>
+          <p>Three fans in the floor pull cool air straight onto the graphics card, and the glass side stays clear of cables. The radiator sits at the top and pushes the processor's heat out of the case, so the card never breathes air that has passed over the radiator. Fan curves are set and tested before the build leaves us.</p>
+        </div>
       </article>
-      <article class="story-block">
-        <p class="stat"><b>72 hours</b><span>of stress testing per build</span></p>
-        <h3>72-hour burn-in</h3>
-        <p>Every build runs a full load test for three days before it ships. We log temperatures, clocks and fan speeds. Any part that drifts out of range is replaced and the test starts again. You get the log with your PC.</p>
+      <article class="story-row">
+        <figure class="story-img"><img src="storefront/img/story-burnin.webp" width="1200" height="588" loading="lazy" alt="The finished Glass Tower from the front, powered on, with lit fans behind the glass side panel"></figure>
+        <div class="story-txt">
+          <p class="stat"><b>72 hours</b><span>of stress testing per build</span></p>
+          <h3>72-hour burn-in</h3>
+          <p>Every build runs a full load test for three days before it ships. We log temperatures, clocks and fan speeds. Any part that drifts out of range is replaced and the test starts again. You get the log with your PC.</p>
+        </div>
       </article>
-      <article class="story-block">
-        <p class="stat"><b>0</b><span>loose cables visible through the glass</span></p>
-        <h3>Cable-managed by hand</h3>
-        <p>One technician builds each PC from start to finish. Cables run behind the motherboard tray and are bound with reusable straps. The result looks tidy and keeps the airflow path open. Our technician signs the build sheet.</p>
+      <article class="story-row">
+        <figure class="story-img"><img src="storefront/img/story-cables.webp" width="1200" height="588" loading="lazy" alt="The motherboard chamber through the glass: the graphics card, the cooler pump and the tidy cable runs"></figure>
+        <div class="story-txt">
+          <p class="stat"><b>0</b><span>loose cables visible through the glass</span></p>
+          <h3>Cable-managed by hand</h3>
+          <p>One technician builds each PC from start to finish. Cables run behind the motherboard tray and are bound with reusable straps. The result looks tidy and keeps the airflow path open. Our technician signs the build sheet.</p>
+        </div>
       </article>
     </div>
   </section>
   <section id="specs" class="band"></section>
+  <section id="accessories" class="band acc" aria-labelledby="accTitle"></section>
   <section id="reviews" class="band reviews">
+    <p class="kicker">Reviews</p>
     <h2>Customer reviews</h2>
     <div class="rev-head">
       <div class="rev-score">
@@ -80,24 +123,37 @@
         <li><span>1 star</span><i style="--w:0.3%"></i><span>1</span></li>
       </ul>
     </div>
-    <div class="rev-list">
-      <article class="review">
+    <div class="rev-tools">
+      <div class="rev-filter" role="group" aria-label="Filter by stars">
+        <button type="button" class="pill" data-stars="0" aria-pressed="true">All</button>
+        <button type="button" class="pill" data-stars="5" aria-pressed="false">5 <span aria-hidden="true">★</span><span class="sr"> stars</span></button>
+        <button type="button" class="pill" data-stars="4" aria-pressed="false">4 <span aria-hidden="true">★</span><span class="sr"> stars</span></button>
+        <button type="button" class="pill" data-stars="3" aria-pressed="false">3 <span aria-hidden="true">★</span><span class="sr"> stars</span></button>
+        <button type="button" class="pill" data-stars="2" aria-pressed="false">2 <span aria-hidden="true">★</span><span class="sr"> stars</span></button>
+        <button type="button" class="pill" data-stars="1" aria-pressed="false">1 <span aria-hidden="true">★</span><span class="sr"> star</span></button>
+      </div>
+      <label class="rev-sort">Sort by <select id="revSort"><option value="newest">Newest</option><option value="highest">Highest rated</option><option value="lowest">Lowest rated</option></select></label>
+    </div>
+    <p class="rev-showing" id="revShowing" role="status"></p>
+    <p class="rev-empty" id="revEmpty" hidden></p>
+    <div class="rev-list" id="revList">
+      <article class="review" data-rating="5" data-date="2026-10-14">
         <div class="rev-top"><span class="avatar" aria-hidden="true">M</span><div><b>Marcus T.</b> <span class="tag">Verified buyer</span><div class="rev-meta"><span class="stars" role="img" aria-label="5 out of 5 stars">★★★★★</span> Oct 14, 2026</div></div></div>
         <h3>Quiet under load</h3>
         <p>I run it at 1440p and the fans stay low even after hours of play. The burn-in log that came in the box was a nice touch.</p>
       </article>
-      <article class="review">
+      <article class="review" data-rating="5" data-date="2026-10-06">
         <div class="rev-top"><span class="avatar" aria-hidden="true">P</span><div><b>Priya S.</b> <span class="tag">Verified buyer</span><div class="rev-meta"><span class="stars" role="img" aria-label="5 out of 5 stars">★★★★★</span> Oct 6, 2026</div></div></div>
         <h3>Cleanest build I have owned</h3>
         <p>The cabling behind the glass is tidy and nothing rattled in transit. I picked Snow and the white parts match.</p>
         <div class="reply"><b>Reply from <span data-brand="name"></span></b><p>Thank you, Priya. The technician who built yours has been told. Enjoy the Snow finish.</p></div>
       </article>
-      <article class="review">
+      <article class="review" data-rating="4" data-date="2026-09-28">
         <div class="rev-top"><span class="avatar" aria-hidden="true">D</span><div><b>Daniel R.</b> <span class="tag">Verified buyer</span><div class="rev-meta"><span class="stars" role="img" aria-label="4 out of 5 stars">★★★★<span class="off">★</span></span> Sep 28, 2026</div></div></div>
         <h3>Fast and well packed</h3>
         <p>It arrived in five days with foam around every panel. I would like a few more lighting presets, but the hardware is excellent.</p>
       </article>
-      <article class="review">
+      <article class="review" data-rating="5" data-date="2026-09-19">
         <div class="rev-top"><span class="avatar" aria-hidden="true">E</span><div><b>Elena V.</b> <span class="tag">Verified buyer</span><div class="rev-meta"><span class="stars" role="img" aria-label="5 out of 5 stars">★★★★★</span> Sep 19, 2026</div></div></div>
         <h3>Good for editing and games</h3>
         <p>I went with the 64 GB memory option for video work. Renders are quick and games run at high refresh on a 4K monitor.</p>
@@ -105,6 +161,7 @@
     </div>
   </section>
   <section id="faq" class="band faq">
+    <p class="kicker">Support</p>
     <h2>Questions</h2>
     <div class="faq-list">
       <details><summary>How long until my PC ships?</summary><p>Builds ship in <span data-catalog="buildDays"></span> days. The 72-hour burn-in is part of that time. The estimated date is shown next to the price before you add to cart.</p></details>
@@ -115,6 +172,7 @@
       <details><summary>How is the glass panel protected in transit?</summary><p>The tempered glass is fitted with foam inserts inside the case, and the case ships in a double box. A reinforced crate is available if you want extra protection.</p></details>
     </div>
   </section>
+  <section id="compare" class="band compare"></section>
 </main>
 <footer class="site">
   <div class="foot-grid">
@@ -128,6 +186,7 @@
     <div class="news-row"><input id="newsEmail" type="email" placeholder="Email address" autocomplete="off" required><button class="primary" type="submit">Subscribe</button></div>
   </form>
   <p class="pay">Payment methods: Major credit and debit cards · Bank transfer · 0% APR financing</p>
+  <p class="legal demo-note">Coldframe is a fictional store made as a demo. Nothing here is for sale.</p>
   <p class="legal">© 2026 <span data-brand="legalName"></span>. All rights reserved. <span data-brand="tagline"></span></p>
 </footer>
 <div id="summaryBar" class="summary-bar" hidden></div>
