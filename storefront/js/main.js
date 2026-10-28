@@ -1,10 +1,10 @@
-import { BRAND } from './brand.js';
-import { connectModel } from './model.js';
-import { CATALOG } from './catalog.js';
-import { totals, money, accessory, shipDate, shipLabel, option, fps, avgFps, onOffer, seriesPicks, seriesMatches, seriesPrice, seriesConfig, nearestSeries } from './pricing.js';
-import { mountConfigurator } from './configurator.js';
-import { mountCart } from './cart.js';
-import { demoCheckoutAllowed } from './gate.js';
+import { BRAND } from './brand.js?v=a9088dcd53';
+import { connectModel } from './model.js?v=a9088dcd53';
+import { CATALOG } from './catalog.js?v=a9088dcd53';
+import { totals, money, accessory, shipDate, shipLabel, option, fps, avgFps, onOffer, seriesPicks, seriesMatches, seriesPrice, seriesConfig, nearestSeries } from './pricing.js?v=a9088dcd53';
+import { mountConfigurator } from './configurator.js?v=a9088dcd53';
+import { mountCart } from './cart.js?v=a9088dcd53';
+import { demoCheckoutAllowed } from './gate.js?v=a9088dcd53';
 
 document.querySelectorAll('[data-brand]').forEach(el => { el.textContent = BRAND[el.dataset.brand]; });
 document.title = `Glass Tower | ${BRAND.name}`;
@@ -330,7 +330,7 @@ $('accessories').addEventListener('click', e => {
 // Local-only demo checkout. The public build has no checkout.js, and this import is never reached from its host.
 const demoCheckout = demoCheckoutAllowed(location.hostname, BRAND.domain);
 if (demoCheckout) {
-  import('./checkout.js').then(m => m.mountCheckout({ catalog: CATALOG, brand: BRAND, cart })).catch(e => console.warn('demo checkout unavailable:', e.message));
+  import('./checkout.js?v=a9088dcd53').then(m => m.mountCheckout({ catalog: CATALOG, brand: BRAND, cart })).catch(e => console.warn('demo checkout unavailable:', e.message));
 }
 
 // Header nav. A link whose section is not on the page yet reads "Soon" and does nothing, rather than pointing nowhere.
