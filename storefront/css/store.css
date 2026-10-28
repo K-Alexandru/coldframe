@@ -239,3 +239,63 @@ footer a:hover { color: var(--hero-ink); }
   html { scroll-behavior: auto; }
   .drawer, .fps-bar i { transition: none; }
 }
+
+/* Local demo checkout (js/checkout.js): shipping form, processing state, confirmation and status timeline */
+:root { --err: #b42318; }
+.drawer.wide { width: min(620px, 100vw); }
+.drawer .primary.wide { margin: 4px 0 12px; }
+.drawer .primary.wide + .link { display: block; margin: 0 auto; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.co-form fieldset { border: 0; margin: 0 0 22px; padding: 0; min-width: 0; }
+.co-form legend { padding: 0; margin: 0 0 10px; font-family: var(--display); font-size: 17px; font-weight: 500; }
+.co-back { margin: 0 0 14px; }
+.fld { margin: 0 0 12px; min-width: 0; }
+.fld label { display: block; margin-bottom: 4px; font-size: 13.5px; font-weight: 500; }
+.opt-tag { color: var(--muted); font-weight: 400; }
+.fld input, .fld select { display: block; width: 100%; min-width: 0; font: inherit; font-size: 16px; color: var(--ink); background: var(--card); border: 1px solid #c9ced6; border-radius: 8px; padding: 10px 12px; }
+.fld input:hover, .fld select:hover { border-color: var(--muted); }
+.fld input:focus-visible, .fld select:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--ink); }
+.fld input[aria-invalid="true"] { border-color: var(--err); }
+.err { margin: 4px 0 0; color: var(--err); font-size: 13px; }
+.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+.co-summary { margin: 4px 0 18px; padding-top: 4px; border-top: 1px solid var(--line); }
+.co-summary h3, .co-sec h3 { font-size: 15px; font-weight: 600; margin: 14px 0 4px; }
+.co-proc { display: grid; justify-items: center; gap: 4px; padding: 72px 0 40px; text-align: center; }
+.co-proc p { margin: 0; }
+.spin { width: 38px; height: 38px; margin-bottom: 14px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--ink); animation: co-spin .9s linear infinite; }
+@keyframes co-spin { to { transform: rotate(360deg); } }
+.co-hero { display: flex; align-items: center; gap: 14px; padding: 18px 0 10px; }
+.co-hero p { margin: 0; }
+.co-badge { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--ink); color: var(--accent); display: grid; place-items: center; }
+.co-badge svg { width: 20px; height: 20px; }
+.co-thanks { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.2; }
+.co-no { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.co-no b { color: var(--ink); }
+.co-done > .muted { margin: 0 0 6px; }
+.co-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.co-sec p, .co-sec address { margin: 0; font-style: normal; }
+.co-sec { padding-bottom: 6px; }
+.co-done .primary.wide { margin-top: 18px; }
+.tl { list-style: none; margin: 10px 0 0; padding: 0; }
+.tl li { position: relative; display: grid; padding: 0 0 18px 38px; min-height: 42px; }
+.tl li:last-child { padding-bottom: 0; }
+.tl li::before { content: ''; position: absolute; left: 11px; top: 26px; bottom: 2px; width: 2px; background: var(--line); }
+.tl li:last-child::before { display: none; }
+.tl li.done::before { background: var(--ink); }
+.tl .dot { position: absolute; left: 0; top: 0; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line); background: var(--card); display: grid; place-items: center; }
+.tl .dot svg { width: 13px; height: 13px; }
+.tl li.done .dot { background: var(--ink); border-color: var(--ink); color: #fff; }
+.tl li.now .dot { border-color: var(--ink); }
+.tl li.now .dot::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+.tl li:not(.done):not(.now) b { color: var(--muted); font-weight: 500; }
+.tl b { font-weight: 600; }
+.tl .muted { font-size: 13px; }
+@media (max-width: 520px) {
+  .row2.stack { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .co-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation-duration: 3s; }
+}

@@ -2,7 +2,10 @@ import { totals, monthly as monthlyOf, money, option, delta, encodeConfig, decod
 
 export function mountCart({ catalog, brand, drawer, body, scrim, countEl }) {
   const key = `${brand.storageKey}.cart`;
-  let items = [], view = 'cart', agreed = false, closeTimer = 0, returnFocus = null;
+  let items = [], view = 'cart', agreed = false, closeTimer = 0, returnFocus = null, checkout = null;
+  // Views after the review belong to the optional local checkout module; without it the flow ends at the review.
+  const TITLES = { cart: 'Your cart', review: 'Order review', ship: 'Shipping and payment', processing: 'Placing your order', confirmed: 'Order confirmed' };
+  const isCheckoutView = v => v === 'ship' || v === 'processing' || v === 'confirmed';
   try {
     const raw = JSON.parse(localStorage.getItem(key));
     if (Array.isArray(raw)) items = raw.filter(it => it && typeof it.code === 'string').map(it => ({ code: it.code, qty: Math.min(3, Math.max(1, Math.round(+it.qty) || 1)) }));
@@ -18,7 +21,9 @@ export function mountCart({ catalog, brand, drawer, body, scrim, countEl }) {
     const n = items.reduce((s, it) => s + it.qty, 0);
     countEl.hidden = n === 0; countEl.textContent = n;
     const total = sum(), monthly = monthlyOf(catalog, total);
-    const head = `<header class="d-head"><h2 id="cartTitle" tabindex="-1">${view === 'review' ? 'Order review' : 'Your cart'}</h2><button class="x" data-close aria-label="Close cart">×</button></header>`;
+    const head = `<header class="d-head"><h2 id="cartTitle" tabindex="-1">${TITLES[view]}</h2><button class="x" data-close aria-label="Close cart"${view === 'processing' ? ' disabled' : ''}>×</button></header>`;
+    drawer.classList.toggle('wide', !!checkout && isCheckoutView(view));
+    if (checkout && isCheckoutView(view)) { body.innerHTML = head + checkout.html(view); return; }
     if (!items.length) { body.innerHTML = head + `<p class="empty">Your cart is empty.</p>`; return; }
     const lines = items.map((it, i) => { const cfg = decodeConfig(catalog, it.code); return `
       <article class="line">
@@ -33,7 +38,7 @@ export function mountCart({ catalog, brand, drawer, body, scrim, countEl }) {
       <p class="muted">or ${money(monthly)}/mo for ${catalog.financeMonths} months at 0% APR</p>`;
     const foot = view === 'cart'
       ? `<label class="agree"><input type="checkbox" data-agree ${agreed ? 'checked' : ''}> I agree to the sale, warranty and return policies</label><button class="primary wide" data-checkout ${agreed ? '' : 'disabled'}>Checkout</button>`
-      : `<p>Estimated delivery: <b>${shipLabel(shipDate(new Date(), catalog.buildDays + 3))}</b></p><button class="link" data-back>Back to cart</button>`;
+      : `<p>Estimated delivery: <b>${shipLabel(shipDate(new Date(), catalog.buildDays + 3))}</b></p>${checkout ? '<button class="primary wide" data-continue>Continue to shipping</button>' : ''}<button class="link" data-back>Back to cart</button>`;
     body.innerHTML = head + lines + upsell + sums + foot;
   };
 
@@ -56,6 +61,7 @@ export function mountCart({ catalog, brand, drawer, body, scrim, countEl }) {
     drawer.querySelector('[data-close]')?.focus();
   };
   const close = () => {
+    if (view === 'processing') return; // the order is mid-flight; the confirmation follows in a moment
     drawer.classList.remove('open'); scrim.hidden = true; setInert(false);
     clearTimeout(closeTimer);
     closeTimer = setTimeout(() => { closeTimer = 0; drawer.hidden = true; view = 'cart'; render(); }, 250);
@@ -70,6 +76,7 @@ export function mountCart({ catalog, brand, drawer, body, scrim, countEl }) {
     else if (t.closest('[data-upsell]')) { items = items.map(it => { const c = decodeConfig(catalog, it.code); return c.warranty === 'w2' ? { ...it, code: encodeConfig(catalog, { ...c, warranty: 'w3' }) } : it; }); save(); render(); }
     else if (t.closest('[data-checkout]')) { view = 'review'; render(); }
     else if (t.closest('[data-back]')) { view = 'cart'; render(); }
+    else if (t.closest('[data-continue]')) { view = 'ship'; render(); }
   });
   body.addEventListener('change', e => {
     const t = e.target;
@@ -84,5 +91,16 @@ export function mountCart({ catalog, brand, drawer, body, scrim, countEl }) {
   return {
     add(config) { const code = encodeConfig(catalog, config), hit = items.find(it => it.code === code); if (hit) hit.qty = Math.min(3, hit.qty + 1); else items.push({ code, qty: 1 }); save(); view = 'cart'; render(); open(); },
     open, close,
+    // Hands the checkout module what it needs from the cart; `make` returns { html(view) } for the checkout views.
+    attachCheckout(make) {
+      checkout = make({
+        items: () => items.map(it => ({ ...it })),
+        total: sum,
+        clear() { items = []; agreed = false; save(); },
+        go(v) { view = v; render(); },
+        show(v) { open(); view = v; render(); },
+      });
+      if (view === 'review') render();
+    },
   };
 }

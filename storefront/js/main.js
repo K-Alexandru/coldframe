@@ -4,6 +4,7 @@ import { CATALOG } from './catalog.js';
 import { totals, money, shipDate, shipLabel, option, fps } from './pricing.js';
 import { mountConfigurator } from './configurator.js';
 import { mountCart } from './cart.js';
+import { demoCheckoutAllowed } from './gate.js';
 
 document.querySelectorAll('[data-brand]').forEach(el => { el.textContent = BRAND[el.dataset.brand]; });
 document.title = `Glass Tower | ${BRAND.name}`;
@@ -139,6 +140,10 @@ export const configurator = mountConfigurator({ root: $('configurator'), catalog
 const cart = mountCart({ catalog: CATALOG, brand: BRAND, drawer: $('cartDrawer'), body: $('cartBody'), scrim: $('scrim'), countEl: $('cartCount') });
 document.addEventListener('click', e => { if (e.target.closest('[data-add]')) cart.add(configurator.config); });
 $('cartBtn').addEventListener('click', () => cart.open());
+// Local-only demo checkout. The public build has no checkout.js, and this import is never reached from its host.
+if (demoCheckoutAllowed(location.hostname, BRAND.domain)) {
+  import('./checkout.js').then(m => m.mountCheckout({ catalog: CATALOG, brand: BRAND, cart })).catch(e => console.warn('demo checkout unavailable:', e.message));
+}
 
 // In-page links never touch the location hash, which holds the share code (#c=...). '#' does nothing; '#id' scrolls.
 document.addEventListener('click', e => {

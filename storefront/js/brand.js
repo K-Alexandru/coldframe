@@ -6,4 +6,5 @@ export const BRAND = {
   tagline: 'Built cold. Runs quiet.',
   accent: '#5fd4ff',
   storageKey: 'coldframe',
+  orderPrefix: 'CF',
 };
