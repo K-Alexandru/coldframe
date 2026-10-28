@@ -242,9 +242,10 @@ stage.appendChild(renderer.domElement);
 RectAreaLightUniformsLib.init();
 
 const scene = new THREE.Scene();
-const BG = new THREE.Color(0x101114);
+// a frozen studio: cool blue-slate haze. BG is the horizon colour; the sky gradient (skyDome, below) ends in it and the fog fades the ice into it
+const BG = new THREE.Color(0x2a3b50);
 scene.background = BG;
-scene.fog = new THREE.Fog(BG, 330, 900);
+scene.fog = new THREE.Fog(BG, 300, 880);
 
 const camera = new THREE.PerspectiveCamera(28, 1, 5, 2400);
 const TARGET = new THREE.Vector3(0, 24.5, 0);
@@ -553,12 +554,12 @@ const M = {
   frontIO: std({ map: frontIOMap, metalness: 0.3, roughness: 0.5 }),
   wordmark: std({ color: 0x9aa0a8, alphaMap: wordmark, transparent: true, metalness: 0.6, roughness: 0.3 }),
   led: std({ color: 0x000000, emissive: 0xffffff, emissiveIntensity: 1.4 }),
-  floor: std({ color: 0x08090b, roughness: 0.72, metalness: 0 }),
+  floor: std({ color: 0x0d1a28, roughness: 0.48, metalness: 0, normalScale: new THREE.Vector2(0.3, 0.3) }),   // frozen sweep; textures and snow in the frozen-floor block below
 };
 for (const k of ['glassTint', 'glassRefl', 'glassEdge']) M[k].userData.noShadow = true;
 M.glassRefl.userData.env = 1.25;
 M.wordmark.userData.noShadow = true;
-M.floor.userData.env = 0.3;
+M.floor.userData.env = 0.12;
 
 const FINISH = {
   black: { chassis: 0x16171a, inner: 0x121315, sleeve: 0x1c1d20, roughBias: 0 },
@@ -3006,13 +3007,13 @@ psuWires([[6.85, 17.45, -18.85], [6.85, 20.0, -18.8], [6.6, 30.0, -18.0], [6.2, 
 for (const z of [-21.4, -9.4]) box(7.2, 0.5, 2.4, M.rubber, 9.3, 0.75, z, psu, 0.08);
 // ===== END SECTION psu =====
 
-// ---------- environment: a dark studio with softboxes and strip lights ----------
+// ---------- environment: a frozen studio, dark and cold, with softboxes and strip lights ----------
 function studioEnvironment() {
   const env = new THREE.Scene();
-  const room = new THREE.Mesh(new THREE.BoxGeometry(140, 90, 140), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.02, 0.021, 0.024), side: THREE.BackSide }));
+  const room = new THREE.Mesh(new THREE.BoxGeometry(140, 90, 140), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.019, 0.024, 0.032), side: THREE.BackSide }));
   room.position.y = 25;
   env.add(room);
-  const floorBounce = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.012, 0.012, 0.014) }));
+  const floorBounce = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.018, 0.028, 0.044) }));   // the ice below throws a faint cold bounce up into the glass and metal
   floorBounce.rotation.x = -Math.PI / 2; floorBounce.position.y = -19.9;
   env.add(floorBounce);
   const panel = (w, h, intensity, tint, pos, look) => {
@@ -3020,14 +3021,14 @@ function studioEnvironment() {
     m.position.set(...pos); m.lookAt(...look);
     env.add(m);
   };
-  panel(38, 26, 7, 0xfff1e2, [-36, 36, 36], [0, 0, 0]);       // key softbox, front left
-  panel(5, 84, 12, 0xe6eeff, [-54, 22, -24], [0, 22, 0]);    // strip, rear left
-  panel(5, 84, 10, 0xe6eeff, [52, 22, -30], [0, 22, 0]);     // strip, rear right
-  panel(5, 84, 3, 0xfff6ec, [44, 22, 44], [0, 22, 0]);       // strip, front right
-  panel(70, 26, 0.3, 0xffffff, [-58, -6, -40], [0, 8, 0]);   // reflector cards, low left and right
-  panel(70, 26, 0.25, 0xffffff, [58, -6, 46], [0, 8, 0]);
-  panel(64, 44, 1.6, 0xffffff, [0, 68, 0], [0, 0, 0]);       // overhead scrim
-  panel(46, 12, 0.7, 0xffffff, [0, 2, -64], [0, 2, 0]);      // low rear bounce
+  panel(38, 26, 7, 0xf2f6ff, [-36, 36, 36], [0, 0, 0]);       // key softbox, front left (near neutral, a touch cool)
+  panel(5, 84, 12, 0xd2e2ff, [-54, 22, -24], [0, 22, 0]);    // strip, rear left (icy)
+  panel(5, 84, 10, 0xd2e2ff, [52, 22, -30], [0, 22, 0]);     // strip, rear right
+  panel(5, 84, 3, 0xeff4ff, [44, 22, 44], [0, 22, 0]);       // strip, front right
+  panel(70, 26, 0.3, 0xe0ebff, [-58, -6, -40], [0, 8, 0]);   // reflector cards, low left and right (snow bounce)
+  panel(70, 26, 0.25, 0xe0ebff, [58, -6, 46], [0, 8, 0]);
+  panel(64, 44, 1.6, 0xf0f5ff, [0, 68, 0], [0, 0, 0]);       // overhead scrim
+  panel(46, 12, 0.7, 0xe0ecff, [0, 2, -64], [0, 2, 0]);      // low rear bounce
   const pmrem = new THREE.PMREMGenerator(renderer);
   const tex = pmrem.fromScene(env, 0.015, 0.1, 400).texture;
   pmrem.dispose();
@@ -3036,7 +3037,7 @@ function studioEnvironment() {
 const envTex = studioEnvironment();
 
 // ---------- lights ----------
-const key = new THREE.DirectionalLight(0xfffaf4, 2.3);
+const key = new THREE.DirectionalLight(0xfffcf8, 2.3);   // near neutral: part colours stay true
 key.position.set(-38, 85, 42);
 key.target.position.copy(TARGET);
 key.castShadow = true;
@@ -3046,12 +3047,14 @@ Object.assign(key.shadow.camera, { left: -30, right: 30, top: 38, bottom: -38, n
 key.shadow.bias = -0.0003;
 key.shadow.normalBias = 0.025;
 scene.add(key, key.target);
-const rim = new THREE.DirectionalLight(0xc7d8ff, 1.3);
+const rim = new THREE.DirectionalLight(0xe4ecff, 1.3);
 rim.position.set(45, 35, -55);
 scene.add(rim);
 const fill = new THREE.DirectionalLight(0xdfe7ff, 0.35);
 fill.position.set(30, 12, 60);
 scene.add(fill);
+// the snow and ice throw a faint cold light back up from below (nothing from above: the sky is dark)
+scene.add(new THREE.HemisphereLight(0x000000, 0x6f9ed4, 0.07));
 // the RGB fans light the interior as soft area lights
 function areaLight(w, h, x, y, z, rx, ry) {
   const l = new THREE.RectAreaLight(0xffffff, 1, w, h);
@@ -3066,27 +3069,148 @@ const glow = [
   { light: areaLight(11, 11, EXHAUST_FAN[0], EXHAUST_FAN[1], EXHAUST_FAN[2] + 1.35, 0, Math.PI), base: 2.0, phase: 0.5 },  // rear exhaust, shining forward
 ];
 
-// floor: satin studio sweep that fades into the backdrop
+// ---------- frozen floor and sky ----------
+// Sky: a gradient dome (deep navy-slate overhead, icy haze at the horizon) drawn first; the fog ends in the same horizon colour.
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(1500, 32, 16), new THREE.ShaderMaterial({
+  uniforms: { cTop: { value: new THREE.Color(0x060a13) }, cMid: { value: new THREE.Color(0x0f1a2b) }, cHor: { value: BG } },
+  vertexShader: 'varying vec3 vD; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vD = w.xyz - cameraPosition; gl_Position = projectionMatrix * viewMatrix * w; }',
+  fragmentShader: `uniform vec3 cTop, cMid, cHor; varying vec3 vD;
+    void main() {
+      float h = max(normalize(vD).y, 0.0);
+      vec3 c = mix(cHor, cMid, smoothstep(0.0, 0.2, h));
+      c = mix(c, cTop, smoothstep(0.12, 0.85, h));
+      gl_FragColor = vec4(c, 1.0);
+    }`,
+  side: THREE.BackSide, depthWrite: false, fog: false,
+}));
+skyDome.renderOrder = -10; skyDome.frustumCulled = false; skyDome.userData.noAO = true;
+scene.add(skyDome);
+// Ice textures (one 1024 tile = ICE_TILE cm): frost grain plus a few branching cracks, tileable. The normal map's alpha carries
+// the frost/crack whiteness; a small second map carries the blotchy noise that decides where the powder snow lies.
+const ICE_TILE = 200;
+const iceN = dataTex(1024, 1024, (data, w, h) => {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#fff'; g.lineCap = 'round'; g.lineJoin = 'round';
+  const r0 = rand(31);
+  let r = r0;
+  const crack = (x, y, a, len, wd, depth) => {
+    g.lineWidth = wd; g.beginPath(); g.moveTo(x, y);
+    const n = Math.max(3, Math.round(len / 16));
+    for (let i = 0; i < n; i++) {
+      a += (r() - 0.5) * 0.8; x += Math.cos(a) * len / n; y += Math.sin(a) * len / n; g.lineTo(x, y);
+      if (depth < 3 && r() < 0.2) { crack(x, y, a + (r() < 0.5 ? -1 : 1) * (0.5 + r() * 0.8), len * (0.3 + r() * 0.3), wd * 0.7, depth + 1); }
+    }
+    g.stroke();
+  };
+  for (let i = 0; i < 8; i++) {
+    const x = r0() * w, y = r0() * h, a = r0() * TAU, len = 150 + r0() * 200;
+    for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) {   // drawn at all nine offsets so the tile wraps
+      r = rand(900 + i); g.save(); g.translate(dx, dy); crack(x, y, a, len, 1.6, 0); g.restore();
+    }
+  }
+  const px = g.getImageData(0, 0, w, h).data, ck = new Float32Array(w * h), tmp = new Float32Array(w * h);
+  for (let i = 0; i < ck.length; i++) ck[i] = px[i * 4] / 255;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) tmp[y * w + x] = (ck[y * w + (x + w - 1) % w] + 2 * ck[y * w + x] + ck[y * w + (x + 1) % w]) / 4;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ck[y * w + x] = (tmp[((y + h - 1) % h) * w + x] + 2 * tmp[y * w + x] + tmp[((y + 1) % h) * w + x]) / 4;
+  const fa = tileNoise(w, h, 64, 64, 2, 17), fb = tileNoise(w, h, 97, 97, 2, 19), frost = fa.map((v, i) => (v + fb[i]) * 0.5), hgt = new Float32Array(w * h);
+  for (let i = 0; i < hgt.length; i++) hgt[i] = frost[i] * 0.4 - ck[i] * 0.35;
+  normalFill(hgt, 2.2)(data, w, h);
+  for (let i = 0; i < hgt.length; i++) data[i * 4 + 3] = Math.min(255, (ck[i] * 1.6 + Math.max(0, frost[i] - 0.55) * 1.2) * 255);
+}, { repeat: [1800 / ICE_TILE, 1800 / ICE_TILE] });
+const iceM = dataTex(256, 256, greyFill(tileNoise(256, 256, 5, 5, 4, 23), 0, 255));
+Object.assign(M.floor, { normalMap: iceN });
+const SNOW_LIN = new THREE.Color(0xb0c4da), FROST_LIN = new THREE.Color(0x5d86b0);
+M.floor.onBeforeCompile = (sh) => {
+  sh.uniforms.tIceM = { value: iceM }; sh.uniforms.tIceN = { value: iceN };
+  sh.uniforms.cSnow = { value: SNOW_LIN }; sh.uniforms.cFrost = { value: FROST_LIN };
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vFq;')
+    .replace('#include <project_vertex>', '#include <project_vertex>\nvFq = (modelMatrix * vec4(transformed, 1.0)).xz;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+    varying vec2 vFq; uniform sampler2D tIceM, tIceN; uniform vec3 cSnow, cFrost;
+    float snowCover, frostW;`)
+    .replace('#include <map_fragment>', `#include <map_fragment>
+    {
+      // powder snow: none right around the case, thickening and patchier away from it (clean ice under the feet and shadows)
+      float fd = length(max(abs(vFq) - vec2(14.0, 23.5), 0.0));
+      vec2 rq = mat2(0.8, -0.6, 0.6, 0.8) * vFq;   // a turned second lookup keeps the small tiles from showing as a lattice
+      float bl = texture2D(tIceM, vFq / 310.0).r * 0.6 + texture2D(tIceM, rq / 83.0 + 0.31).r * 0.4;
+      float t = clamp((fd - 18.0) / 115.0, 0.0, 1.0);
+      float fine = 0.5 * (texture2D(tIceM, vFq / 19.0).r + texture2D(tIceM, rq / 23.0 + 0.2).r);
+      float grain = 0.5 * (texture2D(tIceM, vFq / 5.3 + 0.7).r + texture2D(tIceM, rq / 6.9).r);
+      snowCover = smoothstep(0.34, 0.66, t * 1.25 + (bl - 0.5) * 0.6 + (fine - 0.5) * 0.4 + (grain - 0.5) * 0.3);
+      frostW = texture2D(tIceN, vFq / ${ICE_TILE}.0 + 0.5).a;
+      diffuseColor.rgb = mix(diffuseColor.rgb + cFrost * frostW * 0.55, cSnow * (0.82 + 0.36 * grain), snowCover * 0.94);
+    }`)
+    .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+    roughnessFactor = mix(0.48 + frostW * 0.3, 0.92, snowCover);`);
+};
+// Floor: the ice sweep and its snow
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), M.floor);
+// a few low drifts and ice shards off to the sides and behind, never on the home view's side of the case; merged, seeded
+const frostProps = [];
+{
+  const r = rand(77), HOME_AZ = Math.atan2(HOME_DIR.x, HOME_DIR.z), drifts = [], shards = [];
+  const spot = (d0, d1) => {
+    for (;;) {
+      const a = r() * TAU, d = d0 + r() * (d1 - d0);
+      let da = Math.abs(a - HOME_AZ) % TAU; if (da > Math.PI) da = TAU - da;
+      if (da > 1.0) return [Math.sin(a) * d, Math.cos(a) * d];
+    }
+  };
+  for (let i = 0; i < 7; i++) {
+    const [x, z] = spot(60, 200), ang = r() * TAU;
+    for (let k = 0, n = 3 + Math.floor(r() * 3); k < n; k++) {   // each drift is a few overlapping low lumps
+      const rx = 5 + r() * 11, rz = 4 + r() * 7, ry = 0.7 + r() * 1.3, off = (k - n / 2) * 7;
+      const g = new THREE.SphereGeometry(1, 20, 8);
+      g.scale(rx, ry, rz); g.rotateY(ang + (r() - 0.5) * 0.5);
+      g.translate(x + Math.cos(ang) * off + (r() - 0.5) * 3, -0.3, z - Math.sin(ang) * off + (r() - 0.5) * 3);
+      drifts.push(g);
+    }
+  }
+  for (let c = 0; c < 4; c++) {
+    const [cx, cz] = spot(62, 150);
+    for (let i = 0, n = 3 + Math.floor(r() * 4); i < n; i++) {
+      const h = 3 + r() * 9, rad = 0.5 + r() * 0.9, g = new THREE.CylinderGeometry(rad * 0.12, rad, h, 6, 1).toNonIndexed();
+      g.translate(0, h / 2 - 0.4, 0);
+      g.rotateZ((r() - 0.5) * 0.7); g.rotateX((r() - 0.5) * 0.7); g.rotateY(r() * TAU);
+      g.translate(cx + (r() - 0.5) * 9, 0, cz + (r() - 0.5) * 9);
+      shards.push(g);
+    }
+  }
+  const snowMat = std({ color: 0xb4c8de, roughness: 0.95, metalness: 0, transparent: true, depthWrite: false });
+  snowMat.onBeforeCompile = (sh) => {   // feathered at the foot so a drift melts into the ice instead of sitting on it like a cut-out
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vDriftY;').replace('#include <project_vertex>', '#include <project_vertex>\nvDriftY = (modelMatrix * vec4(transformed, 1.0)).y;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vDriftY;').replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.a *= smoothstep(-0.05, 0.75, vDriftY);');
+  };
+  const shardMat = std({ color: 0x9fcfff, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.55, depthWrite: false, flatShading: true });
+  shardMat.userData.env = 1.0; snowMat.userData.env = 0.3;
+  frostProps.push(snowMat, shardMat);
+  const dm = new THREE.Mesh(mergeGeometries(drifts), snowMat), sm = new THREE.Mesh(mergeGeometries(shards.map(g => (g.deleteAttribute('uv'), g))), shardMat);
+  dm.receiveShadow = false; sm.renderOrder = 1;
+  dm.userData.noAO = sm.userData.noAO = true;
+  scene.add(dm, sm);
+}
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 const blob = canvasTex(256, 256, (g, w, h) => {
   const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-  grd.addColorStop(0, 'rgba(0,0,0,0.9)'); grd.addColorStop(0.5, 'rgba(0,0,0,0.5)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+  grd.addColorStop(0, 'rgba(4,10,20,0.9)'); grd.addColorStop(0.5, 'rgba(4,10,20,0.5)'); grd.addColorStop(1, 'rgba(4,10,20,0)');
   g.fillStyle = grd; g.fillRect(0, 0, w, h);
 });
 const blobMesh = new THREE.Mesh(new THREE.PlaneGeometry(40, 58), new THREE.MeshBasicMaterial({ map: blob, transparent: true, depthWrite: false }));
 blobMesh.rotation.x = -Math.PI / 2; blobMesh.position.y = 0.03;
 scene.add(blobMesh);
-// the studio sweep is near-black, so a shadow-only plane just above it carries the key light's shadow to the eye
-const shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(130, 130), new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.45 }));
+// the ice is dark and glossy, so a shadow-only plane just above it carries the key light's shadow to the eye
+const shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(130, 130), new THREE.ShadowMaterial({ color: 0x050d18, opacity: 0.5 }));
 shadowFloor.rotation.x = -Math.PI / 2; shadowFloor.position.y = 0.012; shadowFloor.receiveShadow = true;
 scene.add(shadowFloor);
 // soft contact blobs under each foot (same footprints as the feet above); multiplied dark, one shared texture
 const footBlob = canvasTex(128, 128, (g, w, h) => {
   const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-  grd.addColorStop(0, 'rgba(0,0,0,0.85)'); grd.addColorStop(0.35, 'rgba(0,0,0,0.45)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+  grd.addColorStop(0, 'rgba(4,10,20,0.85)'); grd.addColorStop(0.35, 'rgba(4,10,20,0.45)'); grd.addColorStop(1, 'rgba(4,10,20,0)');
   g.fillStyle = grd; g.fillRect(0, 0, w, h);
 });
 const footBlobMat = new THREE.MeshBasicMaterial({ map: footBlob, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
@@ -3146,7 +3270,7 @@ root.traverse(o => {
   envMats.add(mat);
 });
 for (const s of spinners) if (s.blur) s.blur.disc.castShadow = false;   // a veil casts no hard disc of shadow; it still takes one
-for (const m of [...envMats, M.floor]) {
+for (const m of [...envMats, M.floor, ...frostProps]) {
   if (!m.isMeshStandardMaterial) continue;
   m.envMap = envTex;
   m.envMapIntensity = m.userData.env ?? 1;
