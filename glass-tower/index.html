@@ -554,12 +554,12 @@ const M = {
   frontIO: std({ map: frontIOMap, metalness: 0.3, roughness: 0.5 }),
   wordmark: std({ color: 0x9aa0a8, alphaMap: wordmark, transparent: true, metalness: 0.6, roughness: 0.3 }),
   led: std({ color: 0x000000, emissive: 0xffffff, emissiveIntensity: 1.4 }),
-  floor: std({ color: 0x0d1a28, roughness: 0.48, metalness: 0, normalScale: new THREE.Vector2(0.3, 0.3) }),   // frozen sweep; textures and snow in the frozen-floor block below
+  floor: std({ color: 0x0d1a28, roughness: 0.48, metalness: 0 }),   // frozen sweep; ice and snow are computed in the frozen-floor block below
 };
 for (const k of ['glassTint', 'glassRefl', 'glassEdge']) M[k].userData.noShadow = true;
 M.glassRefl.userData.env = 1.25;
 M.wordmark.userData.noShadow = true;
-M.floor.userData.env = 0.12;
+M.floor.userData.env = 0.065;
 
 const FINISH = {
   black: { chassis: 0x16171a, inner: 0x121315, sleeve: 0x1c1d20, roughBias: 0 },
@@ -3085,113 +3085,112 @@ const skyDome = new THREE.Mesh(new THREE.SphereGeometry(1500, 32, 16), new THREE
 }));
 skyDome.renderOrder = -10; skyDome.frustumCulled = false; skyDome.userData.noAO = true;
 scene.add(skyDome);
-// Ice textures (one 1024 tile = ICE_TILE cm): frost grain plus a few branching cracks, tileable. The normal map's alpha carries
-// the frost/crack whiteness; a small second map carries the blotchy noise that decides where the powder snow lies.
-const ICE_TILE = 200;
-const iceN = dataTex(1024, 1024, (data, w, h) => {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d', { willReadFrequently: true });
-  g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-  g.strokeStyle = '#fff'; g.lineCap = 'round'; g.lineJoin = 'round';
-  const r0 = rand(31);
-  let r = r0;
-  const crack = (x, y, a, len, wd, depth) => {
-    g.lineWidth = wd; g.beginPath(); g.moveTo(x, y);
-    const n = Math.max(3, Math.round(len / 16));
-    for (let i = 0; i < n; i++) {
-      a += (r() - 0.5) * 0.8; x += Math.cos(a) * len / n; y += Math.sin(a) * len / n; g.lineTo(x, y);
-      if (depth < 3 && r() < 0.2) { crack(x, y, a + (r() < 0.5 ? -1 : 1) * (0.5 + r() * 0.8), len * (0.3 + r() * 0.3), wd * 0.7, depth + 1); }
-    }
-    g.stroke();
-  };
-  for (let i = 0; i < 8; i++) {
-    const x = r0() * w, y = r0() * h, a = r0() * TAU, len = 150 + r0() * 200;
-    for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) {   // drawn at all nine offsets so the tile wraps
-      r = rand(900 + i); g.save(); g.translate(dx, dy); crack(x, y, a, len, 1.6, 0); g.restore();
-    }
+// The ice is computed in the floor shader from world position: no tiling texture, so nothing repeats however far the eye runs.
+// Layers: domain-warped fbm frost clouds (matte frost beside polished clear ice), Voronoi-edge crack veins at three scales (each edge kept
+// or dropped by a hash, tapered, wobbled), frost feathering round the veins, fine grain, a few trapped bubbles, and powder snow whose
+// cover is a wind-stretched fbm thresholded higher near the case (clean ice under the feet and shadows) with ragged detail at the edge.
+// Every layer fades to its mean as the pixel footprint outgrows it, so distant ice settles to a smooth value instead of shimmering.
+const ICE_GLSL = /* glsl */`
+varying vec2 vFq; uniform vec3 cSnow, cFrost, cVein;
+float iFW, iceRough, iceEnv; vec3 iceNw;
+float ih1(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+vec2 ih2(vec2 p) { vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); q += dot(q, q.yzx + 33.33); return fract((q.xx + q.yz) * q.zy); }
+vec3 vnoise(vec2 x) {   // value noise 0..1 with its analytic gradient (Quilez): x = value, yz = d/dx
+  vec2 i = floor(x), f = fract(x);
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0), du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+  float a = ih1(i), b = ih1(i + vec2(1.0, 0.0)), c = ih1(i + vec2(0.0, 1.0)), d = ih1(i + vec2(1.0, 1.0));
+  float k1 = b - a, k2 = c - a, k4 = a - b - c + d;
+  return vec3(a + k1 * u.x + k2 * u.y + k4 * u.x * u.y, du * vec2(k1 + k4 * u.y, k2 + k4 * u.x));
+}
+vec3 fbmD(vec2 x, float fx, int n) {   // fbm, octaves turned and doubled, the ones below the pixel footprint faded out; x = value, yz = gradient
+  float a = 0.5, s = 1.0, v = 0.0; vec2 d = vec2(0.0); mat2 m = mat2(1.0, 0.0, 0.0, 1.0);
+  for (int i = 0; i < 5; i++) {
+    if (i >= n) break;
+    vec3 q = vnoise(m * x + float(i) * 31.7);
+    float w = a * (1.0 - smoothstep(0.3, 0.8, fx * s));
+    v += w * q.x; d += w * (q.yz * m);
+    m = mat2(1.6, -1.2, 1.2, 1.6) * m; a *= 0.5; s *= 2.0;
   }
-  const px = g.getImageData(0, 0, w, h).data, ck = new Float32Array(w * h), tmp = new Float32Array(w * h);
-  for (let i = 0; i < ck.length; i++) ck[i] = px[i * 4] / 255;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) tmp[y * w + x] = (ck[y * w + (x + w - 1) % w] + 2 * ck[y * w + x] + ck[y * w + (x + 1) % w]) / 4;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ck[y * w + x] = (tmp[((y + h - 1) % h) * w + x] + 2 * tmp[y * w + x] + tmp[((y + 1) % h) * w + x]) / 4;
-  const fa = tileNoise(w, h, 64, 64, 2, 17), fb = tileNoise(w, h, 97, 97, 2, 19), frost = fa.map((v, i) => (v + fb[i]) * 0.5), hgt = new Float32Array(w * h);
-  for (let i = 0; i < hgt.length; i++) hgt[i] = frost[i] * 0.4 - ck[i] * 0.35;
-  normalFill(hgt, 2.2)(data, w, h);
-  for (let i = 0; i < hgt.length; i++) data[i * 4 + 3] = Math.min(255, (ck[i] * 1.6 + Math.max(0, frost[i] - 0.55) * 1.2) * 255);
-}, { repeat: [1800 / ICE_TILE, 1800 / ICE_TILE] });
-const iceM = dataTex(256, 256, greyFill(tileNoise(256, 256, 5, 5, 4, 23), 0, 255));
-Object.assign(M.floor, { normalMap: iceN });
-const SNOW_LIN = new THREE.Color(0xb0c4da), FROST_LIN = new THREE.Color(0x5d86b0);
+  return vec3(v, d);
+}
+// crack veins on the edges of a wobbled Voronoi diagram: x = line, y = halo; cell and wid in cm
+vec2 iceCrack(vec2 p, float cell, float wid, float keep, float seed) {
+  vec2 x = p / cell;
+  x += 0.34 * (vec2(vnoise(x * 1.3 + seed).x, vnoise(x * 1.3 + seed + 7.7).x) - 0.5) + 0.2 * (vnoise(x * 4.7 + seed).x - 0.5) + 0.05 * (vnoise(x * 13.0 + seed).x - 0.5);
+  vec2 n = floor(x), f = x - n, i1 = vec2(0.0), i2 = vec2(0.0);
+  float d1 = 9.0, d2 = 9.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 g = vec2(float(i), float(j));
+    vec2 r = g + 0.5 + 0.85 * (ih2(n + g + seed) - 0.5) - f;
+    float d = dot(r, r);
+    if (d < d1) { d2 = d1; i2 = i1; d1 = d; i1 = n + g; } else if (d < d2) { d2 = d; i2 = n + g; }
+  }
+  float ew = (sqrt(d2) - sqrt(d1)) * cell * 0.5;                       // about the distance to the vein, cm
+  float pres = smoothstep(1.0 - keep - 0.04, 1.0 - keep + 0.04, ih1(i1 + i2 + seed));   // this edge is a vein (the same from both cells)
+  float taper = smoothstep(0.1, 0.55, vnoise(x * 2.3 + seed + 3.3).x);
+  float wt = wid * pres * taper, we = max(wt, iFW * 0.9);               // never thinner than a pixel, but never brighter than its coverage
+  return vec2((wt / we) * (1.0 - smoothstep(0.0, we, ew)), pres * (0.4 + 0.6 * taper) * (1.0 - smoothstep(0.0, wid * 16.0 + iFW, ew)));
+}`;
+const ICE_EVAL = /* glsl */`
+{
+  vec2 p = vFq;
+  iFW = max(length(dFdx(p)), length(dFdy(p)));   // cm per pixel
+  float fd = length(max(abs(p) - vec2(14.0, 23.5), 0.0));
+  float clean = smoothstep(6.0, 85.0, fd);       // clean, dark ice right round the case
+  float big = vnoise(p / 300.0 + 11.0).x;        // regional bias: some stretches frostier than others
+  vec2 wp = p + 60.0 * (vec2(fbmD(p / 140.0 + 2.0, iFW / 140.0, 3).x, fbmD(p / 140.0 + 9.0, iFW / 140.0, 3).x) - 0.45);
+  vec3 fr = fbmD(wp / 52.0, iFW / 52.0, 5);
+  float frost = smoothstep(0.30, 0.68, fr.x + (big - 0.5) * 0.35);
+  vec2 cA = iceCrack(wp, 120.0, 0.55, 0.42, 1.0), cB = iceCrack(wp, 36.0, 0.2, 0.5, 5.0), cC = vec2(0.0);
+  if (iFW < 0.5) cC = iceCrack(wp, 10.0, 0.07, 0.55, 9.0) * (1.0 - smoothstep(0.25, 0.5, iFW));
+  float lines = clamp(max(cA.x, max(cB.x * 0.8, cC.x * 0.6)), 0.0, 1.0) * clean;
+  float halo = max(cA.y * 0.7, max(cB.y * 0.6, cC.y * 0.4)) * clean;
+  float rag = vnoise(wp / 2.2).x;
+  frost = clamp(frost * mix(0.1, 1.0, clean) + halo * smoothstep(0.25, 0.9, rag + halo * 0.5) * 0.8, 0.0, 1.0);
+  vec3 gq = vnoise(p / 0.8);
+  float gw = 1.0 - smoothstep(0.3, 0.9, iFW / 0.8), grain = mix(0.5, gq.x, gw);
+  float bub = 0.0;
+  if (iFW < 0.45) {   // trapped bubbles, in clusters, a few millimetres across
+    vec2 bx = p / 5.0, bn = floor(bx), bf = bx - bn;
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j)), h2 = ih2(bn + g + 17.0);
+      float r = 0.025 + 0.05 * h2.x;
+      bub += step(0.6, ih1(bn + g + 3.0)) * (1.0 - smoothstep(r * 0.4, r, length(g + 0.2 + 0.6 * h2 - bf)));
+    }
+    bub *= (1.0 - smoothstep(0.2, 0.45, iFW)) * (1.0 - frost) * clean * smoothstep(0.35, 0.65, vnoise(p / 60.0 + 4.0).x);
+  }
+  float cover, thick;
+  {
+    vec2 sx = (mat2(0.82, -0.57, 0.57, 0.82) * wp) / vec2(170.0, 70.0);   // stretched along a wind axis: streaky drifts
+    float sn = fbmD(sx + 5.0, iFW / 70.0, 4).x
+      + (vnoise(p / 11.0).x - 0.5) * 0.24 * (1.0 - smoothstep(0.3, 0.8, iFW / 11.0))
+      + (vnoise(p / 2.7).x - 0.5) * 0.14 * (1.0 - smoothstep(0.3, 0.8, iFW / 2.7));
+    float thr = mix(1.15, 0.47, smoothstep(30.0, 240.0, fd));
+    cover = smoothstep(thr, thr + 0.05, sn); thick = smoothstep(thr, thr + 0.22, sn);
+  }
+  float sa = cover * (0.55 + 0.45 * thick);
+  vec3 col = diffuseColor.rgb * (0.8 + 0.5 * big) + cFrost * frost * (0.34 + 0.4 * grain);
+  col = mix(col, cVein, lines * 0.85) + cVein * bub * 0.2;
+  col = mix(col, cSnow * (0.8 + 0.4 * grain), sa * 0.95);
+  diffuseColor.rgb = col;
+  iceRough = mix(0.26 + 0.12 * (1.0 - big), 0.6, frost);
+  iceEnv = mix(0.2, 1.0, smoothstep(15.0, 260.0, fd));   // reflections (strips, the fans' area lights) are held back near the case, where they would glare
+  iceRough = mix(mix(iceRough, 0.75, lines), 0.93, sa);
+  vec2 tilt = fr.yz / 52.0 * 5.0 * frost + gq.yz / 0.8 * 0.05 * (0.3 + frost) * gw + vnoise(p / 1.7).yz / 1.7 * 0.1 * sa * (1.0 - smoothstep(0.3, 0.9, iFW / 1.7));
+  iceNw = normalize(vec3(-tilt.x, 1.0, -tilt.y));
+}`;
 M.floor.onBeforeCompile = (sh) => {
-  sh.uniforms.tIceM = { value: iceM }; sh.uniforms.tIceN = { value: iceN };
-  sh.uniforms.cSnow = { value: SNOW_LIN }; sh.uniforms.cFrost = { value: FROST_LIN };
+  sh.uniforms.cSnow = { value: new THREE.Color(0xb0c4da) }; sh.uniforms.cFrost = { value: new THREE.Color(0x5d86b0) }; sh.uniforms.cVein = { value: new THREE.Color(0xcfe3f5) };
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vFq;')
     .replace('#include <project_vertex>', '#include <project_vertex>\nvFq = (modelMatrix * vec4(transformed, 1.0)).xz;');
-  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-    varying vec2 vFq; uniform sampler2D tIceM, tIceN; uniform vec3 cSnow, cFrost;
-    float snowCover, frostW;`)
-    .replace('#include <map_fragment>', `#include <map_fragment>
-    {
-      // powder snow: none right around the case, thickening and patchier away from it (clean ice under the feet and shadows)
-      float fd = length(max(abs(vFq) - vec2(14.0, 23.5), 0.0));
-      vec2 rq = mat2(0.8, -0.6, 0.6, 0.8) * vFq;   // a turned second lookup keeps the small tiles from showing as a lattice
-      float bl = texture2D(tIceM, vFq / 310.0).r * 0.6 + texture2D(tIceM, rq / 83.0 + 0.31).r * 0.4;
-      float t = clamp((fd - 18.0) / 115.0, 0.0, 1.0);
-      float fine = 0.5 * (texture2D(tIceM, vFq / 19.0).r + texture2D(tIceM, rq / 23.0 + 0.2).r);
-      float grain = 0.5 * (texture2D(tIceM, vFq / 5.3 + 0.7).r + texture2D(tIceM, rq / 6.9).r);
-      snowCover = smoothstep(0.34, 0.66, t * 1.25 + (bl - 0.5) * 0.6 + (fine - 0.5) * 0.4 + (grain - 0.5) * 0.3);
-      frostW = texture2D(tIceN, vFq / ${ICE_TILE}.0 + 0.5).a;
-      diffuseColor.rgb = mix(diffuseColor.rgb + cFrost * frostW * 0.55, cSnow * (0.82 + 0.36 * grain), snowCover * 0.94);
-    }`)
-    .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-    roughnessFactor = mix(0.48 + frostW * 0.3, 0.92, snowCover);`);
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + ICE_GLSL)
+    .replace('#include <map_fragment>', '#include <map_fragment>\n' + ICE_EVAL)
+    .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = iceRough;')
+    .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectSpecular *= iceEnv; reflectedLight.directSpecular *= iceEnv;')
+    .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize((viewMatrix * vec4(iceNw * vec3(1.0, faceDirection, 1.0), 0.0)).xyz);');
 };
 // Floor: the ice sweep and its snow
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), M.floor);
-// a few low drifts and ice shards off to the sides and behind, never on the home view's side of the case; merged, seeded
-const frostProps = [];
-{
-  const r = rand(77), HOME_AZ = Math.atan2(HOME_DIR.x, HOME_DIR.z), drifts = [], shards = [];
-  const spot = (d0, d1) => {
-    for (;;) {
-      const a = r() * TAU, d = d0 + r() * (d1 - d0);
-      let da = Math.abs(a - HOME_AZ) % TAU; if (da > Math.PI) da = TAU - da;
-      if (da > 1.0) return [Math.sin(a) * d, Math.cos(a) * d];
-    }
-  };
-  for (let i = 0; i < 7; i++) {
-    const [x, z] = spot(60, 200), ang = r() * TAU;
-    for (let k = 0, n = 3 + Math.floor(r() * 3); k < n; k++) {   // each drift is a few overlapping low lumps
-      const rx = 5 + r() * 11, rz = 4 + r() * 7, ry = 0.7 + r() * 1.3, off = (k - n / 2) * 7;
-      const g = new THREE.SphereGeometry(1, 20, 8);
-      g.scale(rx, ry, rz); g.rotateY(ang + (r() - 0.5) * 0.5);
-      g.translate(x + Math.cos(ang) * off + (r() - 0.5) * 3, -0.3, z - Math.sin(ang) * off + (r() - 0.5) * 3);
-      drifts.push(g);
-    }
-  }
-  for (let c = 0; c < 4; c++) {
-    const [cx, cz] = spot(62, 150);
-    for (let i = 0, n = 3 + Math.floor(r() * 4); i < n; i++) {
-      const h = 3 + r() * 9, rad = 0.5 + r() * 0.9, g = new THREE.CylinderGeometry(rad * 0.12, rad, h, 6, 1).toNonIndexed();
-      g.translate(0, h / 2 - 0.4, 0);
-      g.rotateZ((r() - 0.5) * 0.7); g.rotateX((r() - 0.5) * 0.7); g.rotateY(r() * TAU);
-      g.translate(cx + (r() - 0.5) * 9, 0, cz + (r() - 0.5) * 9);
-      shards.push(g);
-    }
-  }
-  const snowMat = std({ color: 0xb4c8de, roughness: 0.95, metalness: 0, transparent: true, depthWrite: false });
-  snowMat.onBeforeCompile = (sh) => {   // feathered at the foot so a drift melts into the ice instead of sitting on it like a cut-out
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vDriftY;').replace('#include <project_vertex>', '#include <project_vertex>\nvDriftY = (modelMatrix * vec4(transformed, 1.0)).y;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vDriftY;').replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.a *= smoothstep(-0.05, 0.75, vDriftY);');
-  };
-  const shardMat = std({ color: 0x9fcfff, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.55, depthWrite: false, flatShading: true });
-  shardMat.userData.env = 1.0; snowMat.userData.env = 0.3;
-  frostProps.push(snowMat, shardMat);
-  const dm = new THREE.Mesh(mergeGeometries(drifts), snowMat), sm = new THREE.Mesh(mergeGeometries(shards.map(g => (g.deleteAttribute('uv'), g))), shardMat);
-  dm.receiveShadow = false; sm.renderOrder = 1;
-  dm.userData.noAO = sm.userData.noAO = true;
-  scene.add(dm, sm);
-}
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
@@ -3270,7 +3269,7 @@ root.traverse(o => {
   envMats.add(mat);
 });
 for (const s of spinners) if (s.blur) s.blur.disc.castShadow = false;   // a veil casts no hard disc of shadow; it still takes one
-for (const m of [...envMats, M.floor, ...frostProps]) {
+for (const m of [...envMats, M.floor]) {
   if (!m.isMeshStandardMaterial) continue;
   m.envMap = envTex;
   m.envMapIntensity = m.userData.env ?? 1;
