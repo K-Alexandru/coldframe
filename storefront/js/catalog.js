@@ -1,6 +1,6 @@
-// The Glass Tower as sold: prices are relative to each group's default (0); base price covers the default build.
+// The Rime as sold: prices are relative to each group's default (0); base price covers the default build.
 export const CATALOG = {
-  id: 'glass-tower', name: 'Glass Tower', basePrice: 4399, currency: 'CAD', financeMonths: 12, buildDays: 5,
+  id: 'glass-tower', name: 'Rime', basePrice: 4399, currency: 'CAD', financeMonths: 12, buildDays: 5,
   // Lighting presets are a software setting, not a purchase choice: the viewer previews them, they are not priced or carted.
   lighting: [
     { id: 'arctic', name: 'Arctic white' }, { id: 'ice', name: 'Ice blue' }, { id: 'ember', name: 'Ember' },
@@ -14,9 +14,11 @@ export const CATALOG = {
       { id: 'r7-9800x3d', name: 'AMD Ryzen 7 9800X3D', spec: '8 cores, 96 MB L3, up to 5.2 GHz', price: 0, default: true, badge: 'Best for gaming', perf: 1 },
       { id: 'r9-9950x3d', name: 'AMD Ryzen 9 9950X3D', spec: '16 cores, 128 MB L3, up to 5.7 GHz', price: 360, badge: 'Gaming + creating', perf: 1.04 } ] },
     { id: 'gpu', name: 'Graphics', help: 'The biggest single factor in frame rate. 1440p high-refresh: RTX 5080. 4K max settings: RTX 5090.', options: [
-      { id: 'rtx5070ti', name: 'NVIDIA GeForce RTX 5070 Ti', spec: '16 GB GDDR7', price: -450, perf: 0.78, part: 'gpu' },
+      { id: 'rtx5070ti', name: 'ASUS Prime GeForce RTX 5070 Ti', spec: '16 GB GDDR7', price: -450, perf: 0.78, part: 'gpu' },
       { id: 'rtx5080fe', name: 'NVIDIA GeForce RTX 5080 Founders Edition', spec: '16 GB GDDR7', price: 0, default: true, badge: 'Recommended', perf: 1, part: 'gpu' },
-      { id: 'rtx5090fe', name: 'NVIDIA GeForce RTX 5090 Founders Edition', spec: '32 GB GDDR7', price: 1710, perf: 1.42, part: 'gpu' } ] },
+      { id: 'rtx5090fe', name: 'NVIDIA GeForce RTX 5090 Founders Edition', spec: '32 GB GDDR7', price: 1710, perf: 1.42, part: 'gpu' },
+      // appended, not sorted in: share codes store each option's index
+      { id: 'rtx5070fe', name: 'NVIDIA GeForce RTX 5070 Founders Edition', spec: '12 GB GDDR7', price: -650, perf: 0.62, part: 'gpu' } ] },
     { id: 'cooling', name: 'Cooling', help: 'Both are 360 mm liquid coolers; Elite adds the 2.72-inch LCD on the pump.', options: [
       { id: 'kraken360', name: 'NZXT Kraken 360 RGB', spec: '360 mm AIO, RGB pump ring', price: -100, part: 'aio' },
       { id: 'krakenelite360', name: 'NZXT Kraken Elite 360 RGB', spec: '360 mm AIO, 2.72" LCD', price: 0, default: true, part: 'aio' } ] },

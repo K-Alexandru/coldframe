@@ -1,4 +1,4 @@
-import { defaultConfig, deltaLabel, option, encodeConfig, decodeConfig, onOffer, partsOf, money } from './pricing.js?v=a9088dcd53';
+import { defaultConfig, deltaLabel, option, encodeConfig, decodeConfig, onOffer, partsOf, money } from './pricing.js?v=9cbc9739d0';
 
 // Markup uses the class names from store.css (.row-head, .row-panel, .opt-name, .opt-spec, .opt-badge, .opt-delta, .help).
 // Every group is a collapsed row: label, current pick, price delta and a chevron. One row is open at a time.

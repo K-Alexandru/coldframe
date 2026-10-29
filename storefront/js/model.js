@@ -1,4 +1,4 @@
-// postMessage bridge to the embedded Glass Tower model (glass-tower/index.html?embed=1).
+// postMessage bridge to the embedded Rime model (glass-tower/index.html?embed=1).
 export function connectModel(iframe) {
   const queue = [], listeners = [], interactListeners = [];
   const api = { state: null, ready: false,

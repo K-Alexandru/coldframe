@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="robots" content="noindex, nofollow">
-<title>Glass Tower</title>
+<title>Rime</title>
 <script>if (/[?&]embed\b/.test(location.search)) document.documentElement.classList.add('embed');   // before first paint: the host supplies the controls, so this page's header and dock never flash over the embed</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -142,11 +142,11 @@
 </style>
 
 <main class="app">
-  <div id="stage" role="img" aria-label="Interactive 3D model of a dual-glass PC case built with a GeForce RTX 5080 Founders Edition, an AMD Ryzen 7 9800X3D under an NZXT Kraken Elite 360 RGB cooler, an ASUS ROG Strix X870E-E Gaming WiFi motherboard, 64 GB of G.Skill Trident Z5 Neo RGB memory, a Samsung 990 PRO 2 TB SSD, NZXT F120 RGB Duo fans and a Corsair RM1000x Shift power supply. The PC can be switched on and off with the Power control or the case's front power button. Drag to orbit, scroll or pinch to zoom."></div>
+  <div id="stage" role="img" aria-label="Interactive 3D model of the Rime, a dual-glass PC case built with a GeForce RTX 5080 Founders Edition, an AMD Ryzen 7 9800X3D under an NZXT Kraken Elite 360 RGB cooler, an ASUS ROG Strix X870E-E Gaming WiFi motherboard, 64 GB of G.Skill Trident Z5 Neo RGB memory, a Samsung 990 PRO 2 TB SSD, NZXT F120 RGB Duo fans and a Corsair RM1000x Shift power supply. The PC can be switched on and off with the Power control or the case's front power button. Drag to orbit, scroll or pinch to zoom."></div>
 
   <header class="top">
     <div>
-      <h1>Glass Tower</h1>
+      <h1>Rime</h1>
       <p class="spec">Dual-chamber mid-tower &middot; <span class="mono">470 × 285 × 476 mm</span></p>
       <p class="build mono">RTX 5080 FE · Ryzen 7 9800X3D · Kraken Elite 360 · 64 GB Trident Z5 Neo</p>
     </div>
@@ -169,6 +169,10 @@
       <div class="group">
         <span class="label" id="lbl-glass">Side glass</span>
         <div class="row"><button id="glassBtn" class="chip on" aria-labelledby="lbl-glass glassBtn">Fitted</button></div>
+      </div>
+      <div class="group">
+        <span class="label" id="lbl-back">Back panel</span>
+        <div class="row"><button id="backBtn" class="chip on" aria-labelledby="lbl-back backBtn">Fitted</button></div>
       </div>
       <div class="group">
         <span class="label" id="lbl-light">Lighting</span>
@@ -430,7 +434,7 @@ const frontIOMap = canvasTex(64, 300, (g, w, h) => {
 // laser-etched wordmark
 const wordmark = canvasTex(512, 32, (g, w, h) => {
   g.clearRect(0, 0, w, h);
-  g.fillStyle = '#fff'; spacedText(g, 'GLASS TOWER', w / 2, h / 2 + 1, '700 22px Archivo, Arial, sans-serif', 9, 1.3);
+  g.fillStyle = '#fff'; spacedText(g, 'RIME', w / 2, h / 2 + 1, '700 25px Archivo, Arial, sans-serif', 20, 1.3);
 }, { srgb: false });
 
 
@@ -579,9 +583,11 @@ const M = {
   floor: std({ color: 0x0d1a28, roughness: 0.48, metalness: 0 }),   // frozen sweep; ice and snow are computed in the frozen-floor block below
 };
 for (const k of ['glassTint', 'glassRefl', 'glassEdge']) M[k].userData.noShadow = true;
-M.glassRefl.userData.env = 1.25;
+M.glassRefl.userData.env = 1; M.glassRefl.userData.glassEnv = true;
 M.wordmark.userData.noShadow = true;
 M.floor.userData.env = 0.065;
+// white paracord over a Snow build's power cables (Corsair's individually sleeved Type 5 kit): matte, a soft woven sheen
+const sleevedWire = () => phys({ color: 0xe6e7e9, roughness: 0.74, metalness: 0, sheen: 0.8, sheenRoughness: 0.45, sheenColor: 0xffffff });
 
 const FINISH = {
   black: { chassis: 0x16171a, inner: 0x121315, sleeve: 0x1c1d20, roughBias: 0 },
@@ -797,9 +803,12 @@ function spinner(obj, speed, kind, blades) {
 }
 // A rotor at speed as an eye or a camera sees it: each point of the blade annulus is lit by the blades for the share of one
 // exposure they spend over it. Past a crawl the crisp blades hand over to this disc, which shows their smear, then an even
-// veil once an exposure sweeps most of a blade gap, so a fan at speed holds still on screen instead of strobing.
+// veil once an exposure sweeps most of a blade gap, so a fan at speed holds still on screen instead of strobing. The two are
+// never swapped at one speed: the disc fades in over the blades as they speed up and the blades dissolve out beneath it, so a
+// fan spinning up or coasting down passes through the handover without a visible step.
 // The coverage is the exact box filter of the blades' plan shape: G is the running blade length along the circle.
-const SHUTTER = 1 / 45, BLUR_ON = 0.1;   // exposure (s); sweep per exposure (rad) where the disc takes over
+const SPIN_UP = 60;   // the most a rotor gains per second (rad/s²)
+const SHUTTER = 1 / 45, BLUR_FROM = 0.03, BLUR_TO = 0.3;   // exposure (s); sweep per exposure (rad) where the disc starts to show and where it has replaced the blades
 const BLUR_GLSL = /* glsl */`
 {
   float r = length(vBlurP), ph = atan(vBlurP.y, vBlurP.x);
@@ -829,7 +838,7 @@ function fanBlur(rotor, crisp, bladeMat, p, n, mirror) {
     blurC: { value: new THREE.Vector4(p.c0, p.c1, p.p0, p.p1) },
     blurS: { value: new THREE.Vector3(p.sweep, 1, Math.sign(lean) || 1) },
   };
-  const m = std({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  const m = std({ transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0 });
   m.userData.env = bladeMat.userData.env;
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
@@ -849,28 +858,42 @@ function fanBlur(rotor, crisp, bladeMat, p, n, mirror) {
   };
   m.customProgramCacheKey = () => 'fanblur';
   const disc = add(new THREE.RingGeometry(p.rh, p.rt, 128, 4), m, 0, 0, 0, rotor);
-  disc.renderOrder = -1;   // under the glass; it starts shown, with the blades, so the first compile builds both programs
+  disc.renderOrder = -2;   // under the glass and under the blades, which dissolve over it; it starts shown, with the blades, so the first compile builds both programs
   disc.userData.dynamic = disc.userData.noAO = true;
   for (const c of crisp) c.userData.dynamic = true;   // kept out of the rotor's bake so they can hide
-  rotor.userData.blur = { disc, crisp, bladeMat, u, swaps: [], on: null };
-  return rotor.userData.blur;
+  // the crisp blades fade out on a material of their own, since the one they were built with also dresses the hub and the
+  // other fan. It follows the original each time it is drawn; it writes depth, so the blades still hide what is behind them
+  const mat = own(bladeMat.clone());
+  mat.transparent = true;
+  for (const c of crisp) { c.material = mat; c.renderOrder = -1; }   // after the disc, still under the glass
+  const B = { disc, crisp, src: bladeMat, mat, u, swaps: [], on: false, k: -1 };
+  rotor.userData.blur = B;
+  const sync = () => {
+    const a = B.src;
+    mat.color.copy(a.color); mat.emissive.copy(a.emissive); mat.emissiveIntensity = a.emissiveIntensity;
+    mat.roughness = a.roughness; mat.metalness = a.metalness;
+    const m = disc.material;
+    m.color.copy(a.color); m.emissive.copy(a.emissive); m.emissiveIntensity = a.emissiveIntensity;
+    m.roughness = Math.min(1, a.roughness + 0.12); m.metalness = a.metalness; m.envMapIntensity = mat.envMapIntensity;
+  };
+  disc.onBeforeRender = crisp[0].onBeforeRender = sync;
+  return B;
 }
-// show the crisp blades or their blur for an exposure that sweeps D radians, the disc dressed as the blades are now
-// Returns whether it swapped between the two
-function showBlur(B, D) {
-  const on = Math.abs(D) > BLUR_ON, flip = on !== B.on;
-  if (flip) {
-    B.on = on;
-    B.disc.visible = on;
-    for (const c of B.crisp) c.visible = !on;
-    for (const [mesh, crispMat, spunMat] of B.swaps) mesh.material = on ? spunMat : crispMat;
+// mix the crisp blades and their blur for an exposure that sweeps D radians: the blur's share k rises from 0 to 1 over
+// BLUR_FROM..BLUR_TO, the blades keeping the rest (judged on Dk, the sweep of a nominal exposure, so a slow frame can't
+// jerk the mix). Returns whether the picture changed (k moved)
+function showBlur(B, D, Dk = D) {
+  const t = Math.min(1, Math.max(0, (Math.abs(Dk) - BLUR_FROM) / (BLUR_TO - BLUR_FROM))), k = t * t * (3 - 2 * t), moved = k !== B.k;
+  if (moved) {
+    B.k = k; B.on = k > 0;
+    B.disc.visible = k > 0;
+    B.disc.material.opacity = k;
+    B.mat.opacity = 1 - k;
+    for (const c of B.crisp) c.visible = k < 1;
+    for (const [mesh, crispMat, spunMat] of B.swaps) mesh.material = k >= 0.5 ? spunMat : crispMat;   // the hub's wordmark smears midway
   }
-  if (!on) return flip;
-  const a = B.bladeMat, m = B.disc.material;
-  m.color.copy(a.color); m.emissive.copy(a.emissive); m.emissiveIntensity = a.emissiveIntensity;
-  m.roughness = Math.min(1, a.roughness + 0.12); m.metalness = a.metalness; m.envMapIntensity = a.envMapIntensity;
-  B.u.blurS.value.y = D;
-  return flip;
+  if (k > 0) B.u.blurS.value.y = D;
+  return moved;
 }
 // sleeving UVs scaled so the braid keeps a constant weave size
 function sleeveUV(geo, length, radius, cell) {
@@ -1091,6 +1114,9 @@ const DIMM_U = [18.3, 19.25, 20.2, 21.15];           // DIMM A1, A2, B1, B2 cent
 const PCIE1 = { u0: 3.6, u1: 12.5, v0: 16.1, v1: 16.9 };   // primary PCIe 5.0 x16 slot, 1.1 cm tall
 const GROMMETS = [[12.2, 5.6, 7, 3.2], [30.0, 5.6, 7, 3.2], [41.9, -15.2, 2.0, 6.4]];   // [y, z, height, width] at x = XT
 const GPU_BAY = { slotEdgeX: 2.6, top: 22.9, rearZ: zB + 0.4, bracketZ: zB + 0.3 };      // card hangs from the slot toward the glass
+// the board follows the finish: Black ships the X870E-E, Snow the white X870-A. The X870-A's x16 slot sits one slot pitch
+// lower (so the card takes rear slots 2-3) and its 24-pin header 2.65 cm higher (v 3.1 → 8.4); the rest of the mounts match
+const BOARD_LAYOUT = { black: { slot: 0, atx24: 5.75 }, snow: { slot: 1, atx24: 3.1 } };
 const RAD_BAY = { x: -7.3, top: 45.0, fanFace: 39.8, z0: -22.4, z1: 22.4 };             // top-mounted 360 radiator and its fans
 const INTAKE_FANS = [[-6.0, 1.7, -12.6], [-6.0, 1.7, 0], [-6.0, 1.7, 12.6]];            // bottom 120 mm fan centres
 const EXHAUST_FAN = [-6.8, 31.5, zB + 1.55];                                             // rear 120 mm fan centre
@@ -1100,7 +1126,7 @@ function onBoard(u0, v0, u1, v1, h, mat, parent, r = 0) {
   return box(h, v1 - v0, u1 - u0, mat, BX - h / 2, BTOP - (v0 + v1) / 2, BREAR + (u0 + u1) / 2, parent, r);
 }
 
-const chassis = part('Glass Tower chassis', 'Dual-chamber, 4 mm tempered glass, steel frame');
+const chassis = part('Rime chassis', 'Dual-chamber, 4 mm tempered glass, steel frame');
 // a W × D plate t thick standing on y0, with an opening x0..x1 × z0..z1, extruded as one sheet so its rim has no
 // seams between pieces; r rounds the edges
 function plate(t, r, x0, x1, z0, z1, y0) {
@@ -1116,14 +1142,15 @@ function plate(t, r, x0, x1, z0, z1, y0) {
   const fl = add(new THREE.PlaneGeometry(X1 - X0, 2 * Z), M.perf, (X0 + X1) / 2, 0.42, 0, chassis);
   fl.rotation.x = -Math.PI / 2;
 }
-// right panel, with a perforated intake in front of the PSU's fan
+// right panel, with a perforated intake in front of the PSU's fan; a part of its own so the Back panel control can take it off
+const backPanel = part('Back panel', 'Steel side panel, 2.5 mm, behind the motherboard tray · lifts off to show the cable chamber and PSU', chassis);
 {
   const V = { y0: 2.0, y1: 15.0, z0: zB + 1.5, z1: -8.0 };
   const s = roundedRect(D, H, 0.08, 0, H / 2);
   s.holes.push(roundedRect(V.z1 - V.z0, V.y1 - V.y0, 0.3, (V.z0 + V.z1) / 2, (V.y0 + V.y1) / 2, THREE.Path));
   const g = new THREE.ExtrudeGeometry(s, { ...SHEET, curveSegments: 6 }).translate(0, 0, SHEET.bevelThickness).rotateY(-Math.PI / 2);
-  add(g, M.chassis, xR, 0, 0, chassis);
-  add(new THREE.PlaneGeometry(V.z1 - V.z0, V.y1 - V.y0), M.perf, xR - 0.125, (V.y0 + V.y1) / 2, (V.z0 + V.z1) / 2, chassis).rotation.y = Math.PI / 2;
+  add(g, M.chassis, xR, 0, 0, backPanel);
+  add(new THREE.PlaneGeometry(V.z1 - V.z0, V.y1 - V.y0), M.perf, xR - 0.125, (V.y0 + V.y1) / 2, (V.z0 + V.z1) / 2, backPanel).rotation.y = Math.PI / 2;
 }
 box(0.3, H - 1, D - 0.6, M.inner, XT + 0.15, H / 2, 0, chassis, 0.06);    // tray
 // top: solid border + perforated insert
@@ -1151,8 +1178,12 @@ for (const [x, z] of [[xL + 3, zB + 5], [xR - 3, zB + 5], [xL + 3, zF - 5], [xR 
   add(new THREE.ExtrudeGeometry(s, { ...SHEET, curveSegments: 40 }).translate(0, 0, SHEET.bevelThickness), M.chassis, 0, 0, zB, chassis);
 for (const [x, y] of [[13.0, 1.6], [13.0, 15.4], [6.6, 1.6], [5.6, 13.0]]) box(1.3, 1.3, 0.25, M.chassis, x, y, zB + 0.125, chassis);   // PSU mounting tabs under the four 6-32 heads
   add(new THREE.CircleGeometry(5.7, 64), M.grille, -6.8, 31.5, zB + 0.12, chassis).rotation.y = Math.PI;
-  // vented covers for the six slots under the graphics card
-  for (let k = 2; k < 8; k++) box(12.6, 1.92, 0.06, M.slotCover, -4.3, 22.9 - 2.032 * (k + 0.5), zB + 0.32, chassis);
+  // vented covers for the six slots the graphics card leaves free: it takes two from the board layout's slot, so the top
+  // three covers stay unbaked and show per finish
+  for (let k = 0; k < 8; k++) {
+    const c = box(12.6, 1.92, 0.06, M.slotCover, -4.3, 22.9 - 2.032 * (k + 0.5), zB + 0.32, chassis);
+    if (k < 3) { c.userData.dynamic = true; onFinish(f => { const s = BOARD_LAYOUT[f].slot; c.visible = k < s || k > s + 1; }); }
+  }
   for (let k = 1; k < 8; k++) box(12.44, 0.2, 0.23, M.chassis, -4.3, 22.9 - 2.032 * k, zB + 0.125, chassis);   // bridges between slots
   // slot retention strip with thumbscrews
   box(1.4, 16.8, 0.25, M.chassis, -11.4, 14.75, zB - 0.125, chassis, 0.06);
@@ -1194,7 +1225,8 @@ const envMats = new Set();        // every material that takes the environment m
 const MOUNTS = {
   pcie1: { ...PCIE1, x: BX, yTop: boardY(PCIE1.v0), yMid: boardY((PCIE1.v0 + PCIE1.v1) / 2), yBottom: boardY(PCIE1.v1),
     z0: boardZ(PCIE1.u0), z1: boardZ(PCIE1.u1) },                // yMid and z0/z1 are the PCIe edge's own expressions
-  gpuBay: { ...GPU_BAY, slotPitch: 2.032, slots: 2 },            // the rear panel's slot pitch; the chassis models 2 open slots
+  gpuBay: { ...GPU_BAY, slotPitch: 2.032, slots: 2, slot: 0,   // the rear panel's slot pitch; the card takes 2 open slots from `slot`
+    laneLength: 30.4 },                                           // the hose lane over the card reaches this far from rearZ (a 304 mm card)
   socket: { ...SOCKET, x: BX, y: boardY(SOCKET.v), z: boardZ(SOCKET.u) },
   radBay: { ...RAD_BAY },
   dimm: DIMM_U.map(u => ({ u, x: BX - 0.8 + 0.35, y: boardY(8.5), z: boardZ(u) })),   // a module's centre, as the RAM section places it
@@ -1203,6 +1235,8 @@ const MOUNTS = {
   glass: { innerX: xL + 0.44 },                                   // the left glass's inner face, frit bands included
   board: { faceX: BX, top: BTOP, rear: BREAR, w: BW, h: BH },
   psuBay: { ...PSU_BAY },
+  blocks: [],                                                     // boxes (min, max) a hose keeps clear of: the board-side 24-pin and EPS bundles, the DIMM envelope
+  finish: 'black',                                                // the finish these mounts are laid out for (the board section's layout hook)
   anchors: {},
 };
 const PART_SPECS = {};            // id → plain spec; { extends: id } merges shallowly over another spec
@@ -1217,18 +1251,37 @@ Object.assign(PART_SPECS, {
       blade: { rh: 1.95, rt: 5.56, c0: 2.1, c1: 4.0, p0: 0.8, p1: 0.4, sweep: 0.7, camber: 0.08, thick: 0.12 } },
     socket: { s: 3.75, t: 5.85 },
     bracket: { portY: 21.4, ports: [[-8.6, 1], [-6.4, 1], [-4.2, 1], [-1.9, 0]] } },
+  // the 5090 FE shares the 5080 FE's cast shell: same 304 × 137 × 40 mm, two 7-blade fans in the double flow-through
+  // loops, the angled 12V-2x6 in the centre cap and the same bracket. Inside it trades the cold plate for a 3D vapor
+  // chamber with liquid-metal TIM (five heat pipes on both); outside only the "RTX 5090" prints differ
   rtx5090fe: { extends: 'rtx5080fe', name: 'NVIDIA GeForce RTX 5090 Founders Edition', model: '5090',
-    spec: '32 GB GDDR7, 512-bit · 21,760 CUDA cores · 2.41 GHz boost · 575 W · 304 × 137 × 40 mm, dual-slot · fans stop at idle' },
-  rtx5070ti: { family: 'gpu', style: 'axial', name: 'NVIDIA GeForce RTX 5070 Ti',
-    spec: '16 GB GDDR7, 256-bit · 8,960 CUDA cores · 2.45 GHz boost · 300 W · partner card, 304 × 126 × 50 mm, 2.5-slot cooler',
-    size: { length: 30.4, height: 12.6, thickness: 5.0 }, slots: 2, bracketSlots: 2, print: 'GEFORCE RTX',
-    fans: { count: 3, pitch: 9.9, radius: 4.35, blades: 9, speed: [100, 12], ring: true,
-      blade: { rh: 1.5, rt: 4.3, c0: 1.7, c1: 3.1, p0: 0.75, p1: 0.4, sweep: 0.8, camber: 0.08, thick: 0.11 } },
-    socket: { s: 6.0, side: 'edge' },
-    bracket: { portY: 21.4, ports: [[-8.6, 1], [-6.4, 1], [-4.2, 1], [-1.9, 0]] } },
+    spec: '32 GB GDDR7, 512-bit · 21,760 CUDA cores · 2.41 GHz boost · 575 W · 3D vapor chamber, liquid-metal TIM · 304 × 137 × 40 mm, dual-slot · fans stop at idle' },
+  // the 5070 FE: the same design language at 242 × 112 mm with two 90 mm fans, but single flow-through (the bracket-end
+  // fan exhausts through four vents in the bracket), no lighting, and the 12V-2x6 at the PCB's end, tail side of the centre
+  rtx5070fe: { extends: 'rtx5080fe', name: 'NVIDIA GeForce RTX 5070 Founders Edition', model: '5070',
+    spec: '12 GB GDDR7, 192-bit · 6,144 CUDA cores · 2.51 GHz boost · 250 W · 242 × 112 × 40 mm, dual-slot · fans stop at idle',
+    size: { length: 24.2, height: 11.2, thickness: 4.0 }, land: 5.4, lit: false,
+    fans: { count: 2, pitch: 7.0, radius: 4.5, blades: 7, speed: [120, 12],
+      blade: { rh: 1.6, rt: 4.45, c0: 1.7, c1: 3.2, p0: 0.8, p1: 0.4, sweep: 0.7, camber: 0.08, thick: 0.11 } },
+    socket: { s: 2.6, t: 4.6 },
+    bracket: { portY: 21.4, ports: [[-8.6, 1], [-6.4, 1], [-4.2, 1], [-1.9, 0]], vents: 4 } },
+  // modelled on the ASUS Prime RTX 5070 Ti (PRIME-RTX5070TI-16G): 304 × 126 × 50 mm, three 11-blade ringed fans, no
+  // lighting, the 12V-2x6 recessed in the top edge pointing straight up, a brushed tail on the backplate, steel bracket
+  rtx5070ti: { family: 'gpu', style: 'axial', name: 'ASUS Prime GeForce RTX 5070 Ti 16 GB',
+    spec: '16 GB GDDR7, 256-bit · 8,960 CUDA cores · 2.45 GHz boost · 300 W · ASUS Prime partner card, 304 × 126 × 50 mm, 2.5-slot cooler',
+    size: { length: 30.4, height: 12.6, thickness: 5.0 }, slots: 2, bracketSlots: 2, print: 'GEFORCE RTX', lit: false,
+    fans: { count: 3, pitch: 9.9, radius: 4.35, blades: 11, speed: [100, 12], ring: true,
+      blade: { rh: 1.5, rt: 4.3, c0: 1.4, c1: 2.55, p0: 0.75, p1: 0.4, sweep: 0.8, camber: 0.08, thick: 0.11 } },
+    socket: { s: 0.5, side: 'edge' },
+    bracket: { portY: 21.4, ports: [[-8.6, 1], [-6.4, 1], [-4.2, 1], [-1.9, 0]], steel: true } },
   type5: { family: 'gpuCable', style: 'ribbon', name: 'Corsair Type 5 12V-2x6 cable',
     spec: 'Native 16-pin (12+4) from the RM1000x SHIFT · 600 W · PVC jacketed',
-    ribbon: { cols: 6, rows: 2, sp: 0.32, r: 0.13 }, ups: [[0, 1, 0], [0, 1, 0], [0, 0.5, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]] },
+    ribbon: { cols: 6, rows: 2, sp: 0.32, r: 0.13 }, ups: [[0, 1, 0], [0, 1, 0], [0, 0.5, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]],
+    // Snow builds run Corsair's white individually sleeved Type 5 kit: 16 AWG in triple-layer paracord, about 4 mm over the
+    // sleeve (Corsair publishes no OD; its combs are sized for 4 mm sleeving), black connectors and combs
+    finishes: { snow: { name: 'Corsair Premium Individually Sleeved 12V-2x6 cable, White',
+      spec: 'CP-8920324 · 12+4-pin 600 W from the RM1000x SHIFT · 16 AWG, triple-layer paracord sleeving · 650 mm · black connector, interlocking combs',
+      ribbon: { cols: 6, rows: 2, sp: 0.42, r: 0.2 }, wire: 'sleeved' } } },
   krakenelite360: { family: 'aio', style: 'kraken', head: 'lcd', name: 'NZXT Kraken Elite 360 RGB',
     spec: 'AIO pump · 2.72" 640 × 640 IPS LCD, RGB ring, Turbine pump 1,200–2,800 RPM · cooling the Ryzen 7 9800X3D',
     tubing: { name: 'Kraken Elite tubing', spec: '2 × 420 mm CIIR rubber hoses, PET braided sleeve', r: 0.78 },
@@ -1426,6 +1479,7 @@ const SWAPPABLE = ['gpu', 'aio', 'ram'];
 const sameSpec = (a, b) => { const j = id => { const { id: _, ...r } = resolveSpec(id); return JSON.stringify(r); }; return j(a) === j(b); };
 const adoptIds = () => { for (const k of SWAPPABLE) if (wanted[k] && mounted[k] && mounted[k].id !== wanted[k] && sameSpec(wanted[k], mounted[k].id)) mounted[k].id = wanted[k]; };
 const wanted = {};
+const stale = new Set();          // mounted families to rebuild under their own id: their mounts moved (a finish's board layout)
 let swapping = null;
 // ask for parts by id ({ gpu: 'rtx5070ti' }); swaps run one at a time and coalesce to the latest id per family
 function want(map) {
@@ -1439,8 +1493,9 @@ function want(map) {
   if (!swapping) swapping = (async () => {
     await null;
     try {
-      for (let f; (adoptIds(), f = SWAPPABLE.find(k => wanted[k] && wanted[k] !== mounted[k]?.id));) {
-        const id = wanted[f];
+      for (let f; (adoptIds(), f = SWAPPABLE.find(k => (wanted[k] && wanted[k] !== mounted[k]?.id) || (stale.has(k) && mounted[k])));) {
+        const id = wanted[f] ?? mounted[f].id;
+        stale.delete(f);
         try { await swapPart(f, id); } catch (e) { console.error(`part swap ${f} → ${id} failed:`, e); if (wanted[f] === id) delete wanted[f]; }
       }
     } finally { swapping = null; }
@@ -1451,6 +1506,8 @@ const parts = {
   want,
   mounted,
   swap: (family, id) => want({ [family]: id }),
+  // rebuild a mounted family and its DEPENDS against mounts that moved, through the same queue as a swap
+  rebuild: family => { if (mounted[family]) stale.add(family); return want({}); },
   // build at the caller's position in the file (load order is render and spinner order) and attach; the global bake runs later
   mount(family, id = startId(family)) {
     const h = buildPart(family, id);
@@ -1601,21 +1658,23 @@ const pcbPlan = (() => {
   p.holes = [[0.6, 0.9], [16.8, 0.75], [23.6, 0.75], [0.6, 15.9], [16.6, 16.25], [23.7, 15.9], [0.5, 28.7], [16.6, 28.7], [23.3, 28.7]];
   return p;
 })();
-function drawPCB(g, w, h, orm) {
+// white: the X870-A's white mask (light traces and vias, a dotted grid print, its own silkscreen); else the X870E-E's black one
+function drawPCB(g, w, h, orm, white) {
   const P = orm ? ORM : c => c;
   g.save(); g.scale(w / BW, h / BH);
-  g.fillStyle = P('#121315', 0, 0.58); g.fillRect(0, 0, BW, BH);
+  g.fillStyle = white ? P('#e3e4e6', 0, 0.55) : P('#121315', 0, 0.58); g.fillRect(0, 0, BW, BH);
   if (!orm) {
-    const r = rand(9);
+    const r = rand(9), t = white ? [208, 210, 213] : [22, 23, 26];
     for (let i = 0; i < 30; i++) {           // copper pours read through the mask as faint tone shifts
-      g.fillStyle = `rgba(${22 + r() * 6},${23 + r() * 6},${26 + r() * 6},0.45)`;
+      g.fillStyle = `rgba(${t[0] + r() * 6},${t[1] + r() * 6},${t[2] + r() * 6},0.45)`;
       g.fillRect(r() * BW, r() * BH, 0.8 + r() * 4, 0.6 + r() * 3.5);
     }
   }
+  if (white) { g.fillStyle = P('#cdcfd2', 0, 0.55); for (let u = 0.25; u < BW; u += 0.5) for (let v = 0.25; v < BH; v += 0.5) g.fillRect(u - 0.02, v - 0.02, 0.04, 0.04); }
   g.lineCap = 'round'; g.lineJoin = 'round';
-  g.strokeStyle = P('#1b1d21', 0, 0.45); g.lineWidth = 0.022;
+  g.strokeStyle = white ? P('#d2d4d7', 0, 0.5) : P('#1b1d21', 0, 0.45); g.lineWidth = 0.022;
   for (const t of pcbPlan.traces) { g.beginPath(); t.forEach(([u, v], i) => (i ? g.lineTo(u, v) : g.moveTo(u, v))); g.stroke(); }
-  g.fillStyle = P('#2c2d31', 0.6, 0.4);
+  g.fillStyle = white ? P('#b8bbbf', 0.6, 0.4) : P('#2c2d31', 0.6, 0.4);
   for (const [u, v, rr] of pcbPlan.vias) { g.beginPath(); g.arc(u, v, rr, 0, TAU); g.fill(); }
   for (const [u, v, rot, big] of pcbPlan.smd) {
     if (big) {                               // small QFN / SOT chips
@@ -1638,12 +1697,25 @@ function drawPCB(g, w, h, orm) {
   g.strokeStyle = P('#a8823a', 1, 0.4); g.lineWidth = 0.05;
   g.beginPath(); g.moveTo(0.75, 16.3); g.lineTo(0.75, 27.75); g.lineTo(1.2, 28.2); g.lineTo(2.0, 28.2); g.stroke();
   // silkscreen
-  g.fillStyle = g.strokeStyle = P('#8e9095', 0, 0.72);
+  g.fillStyle = g.strokeStyle = white ? P('#7c7f84', 0, 0.6) : P('#8e9095', 0, 0.72);
   const L = (s, u, v, size = 0.12, rot = 0) => cmText(g, s, u, v, size, { w: 500, fam: MONO, rot });
   L('CPU_12V_1', 5.1, 1.22, 0.11); L('CPU_12V_2', 7.1, 1.22, 0.11);
-  [['CPU_FAN', 17.7], ['CPU_OPT', 18.8], ['AIO_PUMP', 19.9], ['CHA_FAN5', 20.95]].forEach(([s, u]) => L(s, u, 0.8, 0.1));
+  [['CPU_FAN', 17.7], ['CPU_OPT', 18.8], ['AIO_PUMP', 19.9], ['CHA_FAN5', 20.95]].slice(0, white ? 3 : 4).forEach(([s, u]) => L(s, u, 0.8, 0.1));
   ['CPU', 'DRAM', 'VGA', 'BOOT'].forEach((s, i) => L(s, 21.95 + i * 0.3, 1.95, 0.1, -Math.PI / 2));
   ['A1', 'A2', 'B1', 'B2'].forEach((s, i) => L(s, DIMM_U[i], 15.65, 0.13));
+  if (white) {
+    // the X870-A: model name up the DIMM side, PCIe labels a slot lower, five fan headers along the bottom edge and the
+    // START button down there; the SupremeFX block is printed black under the audio caps
+    L('LGA1718', 16.3, 3.9, 0.13); L('PCIEX16(G5)', 4.6, 19.25, 0.13); L('PCIEX16(G4)', 5.2, 28.06, 0.13); L('START', 16.5, 28.95, 0.1);
+    [['F_AUDIO', 3.55], ['ADD_GEN2_2', 5.0], ['ADD_GEN2_3', 6.2], ['CHA_FAN1', 7.4], ['CHA_FAN2', 8.6], ['CHA_FAN3', 9.8], ['CHA_FAN4', 11.0],
+      ['CHA_FAN5', 17.9], ['F_PANEL', 23.55]].forEach(([s, u]) => L(s, u, 29.33, 0.1));
+    cmText(g, 'STRIX X870-A GAMING WIFI', 17.4, 11.75, 0.3, { w: 600, sp: 0.05, st: 0.92, rot: -Math.PI / 2 });
+    g.lineWidth = 0.03; poly(g, [[17.4, 8.3], [17.67, 8.78], [17.13, 8.78]]); g.stroke(); cmText(g, '!', 17.4, 8.62, 0.22, { w: 700 });
+    g.fillStyle = P('#1a1b1e', 0, 0.6); g.fillRect(0.3, 25.8, 1.7, 2.2);
+    g.fillStyle = P('#d9dadc', 0, 0.6); cmText(g, 'SUPREMEFX', 1.15, 26.9, 0.26, { w: 700, sp: 0.04, rot: -Math.PI / 2 });
+    g.restore();
+    return;
+  }
   L('LGA1718', 15.2, 3.85, 0.13); L('START', 23.7, 3.62, 0.1); L('FLEXKEY', 23.7, 4.45, 0.1);
   L('PCIEX16(G5)', 1.95, 16.45, 0.13); L('PCIEX16(G4)', 5.2, 28.02, 0.13);
   [['F_AUDIO', 4.35], ['CHA_FAN1', 5.75], ['ADD_GEN2_2', 7.1], ['ADD_GEN2_3', 8.55], ['ALT_PCIE', 10.0], ['CHA_FAN2', 11.25], ['USB_2425', 12.6],
@@ -1658,6 +1730,8 @@ function drawPCB(g, w, h, orm) {
 }
 const pcbMap = canvasTex(1536, 1920, (g, w, h) => drawPCB(g, w, h, false));
 const pcbORM = canvasTex(768, 960, (g, w, h) => drawPCB(g, w, h, true), { srgb: false });
+const pcbMapA = canvasTex(1536, 1920, (g, w, h) => drawPCB(g, w, h, false, true));
+const pcbORMA = canvasTex(768, 960, (g, w, h) => drawPCB(g, w, h, true, true), { srgb: false });
 
 // ---- decal atlas: printed / machined heatsink faces, the I/O shield and the button caps ----
 // region: [x, y, w, h] in atlas px and px per cm; ART draws each in region cm with P(colour, metalness, roughness)
@@ -1884,17 +1958,152 @@ const ART = {
     g.fillStyle = P('#b4b8be', 1, 0.3); g.fillRect(0.75, 0.04, 0.5, 0.26);
   },
 };
-function drawAtlas(g, s, orm) {
+function drawAtlas(g, s, orm, regions = ATL, art = ART) {
   const P = orm ? ORM : c => c;
-  for (const k in ATL) {
-    const [x, y, w, h, ppc] = ATL[k];
+  for (const k in regions) {
+    const [x, y, w, h, ppc] = regions[k];
     g.save(); g.scale(s, s); g.translate(x, y); g.beginPath(); g.rect(0, 0, w, h); g.clip(); g.scale(ppc, ppc);
-    ART[k](g, P, orm, w / ppc, h / ppc);
+    art[k](g, P, orm, w / ppc, h / ppc);
     g.restore();
   }
 }
 const atlasMap = canvasTex(ATW, ATH, g => drawAtlas(g, 1, false));
 const atlasORM = canvasTex(ATW / 2, ATH / 2, g => drawAtlas(g, 0.5, true), { srgb: false });
+
+// ---- the X870-A's atlas (Snow): its white shield, shroud print and the silver / white covers; same layout rules ----
+// layout from ASUS's product photos and TechPowerUp's review (rog.asus.com/motherboards/rog-strix/rog-strix-x870-a-gaming-wifi,
+// techpowerup.com/review/asus-rog-strix-x870-a-gaming-wi-fi/3.html): each region paints only inside its part's outline
+const ATLA = {
+  ioA: [0, 0, 276, 1024, 64], shA: [280, 0, 456, 960, 64], vrA: [740, 0, 768, 168, 60], m21A: [740, 172, 804, 156, 60],
+  llA: [740, 332, 845, 282, 48], chA: [1590, 332, 450, 362, 48], barA: [740, 700, 940, 104, 40],
+};
+// the ROG eye, lit through the shroud's top: 0.3 cm cells from (u 0.95, v 5.4)
+const EYE = ['00000000000111', '00000000111111', '00000111111110', '00011111001100', '00111100011000', '01111000110000',
+  '11110001100000', '11111111000000', '01111110000000', '00111000000000', '00010000000000'];
+const rogEye = (g, x, y, s) => poly(g, [[0, 0.62], [0.7, 0.05], [2.0, -0.2], [1.25, 0.32], [0.9, 0.7]].map(([a, b]) => [x + a * s, y + b * s]));
+// brushed streaks along x over w × h (metal: ORM roughness jitter instead)
+function brushX(g, P, o, w, h, seed, n = 300) {
+  const r = rand(seed);
+  for (let i = 0; i < n; i++) {
+    g.fillStyle = o ? P('', 1, 0.28 + r() * 0.14) : `rgba(${r() < 0.5 ? '255,255,255' : '0,0,0'},${0.02 + r() * 0.03})`;
+    g.fillRect(0, r() * h, w, 0.004 + r() * 0.008);
+  }
+}
+const ARTA = {
+  // white I/O shield from behind (x = h − 0.15, y = v): black ports, red 10 Gbps and blue 5 Gbps Type-A, grey print
+  ioA(g, P) {
+    const X = h => h - 0.15, ink = P('#55585d', 0, 0.6);
+    g.fillStyle = P('#c4c6c9', 1, 0.4); g.fillRect(0, 0, 4.3, 16);
+    g.fillStyle = P('#e9eaec', 0, 0.55); g.fillRect(0.16, 0.16, 3.98, 15.68);
+    const rr = (h0, v0, h1, v1, r, c) => { g.fillStyle = c; g.beginPath(); g.roundRect(X(h0), v0, h1 - h0, v1 - v0, r); g.fill(); };
+    const shell = P('#a4a7ac', 1, 0.35), hole = P('#050506', 0, 0.9), tongue = P('#2b2c30', 0, 0.5), red = P('#b3262b', 0, 0.5), blue = P('#2b5cd6', 0, 0.5);
+    const usbA = (v, h, t) => { rr(h - 0.28, v - 0.65, h + 0.28, v + 0.65, 0.03, shell); rr(h - 0.23, v - 0.58, h + 0.23, v + 0.58, 0.02, hole); rr(h - 0.02, v - 0.48, h + 0.11, v + 0.48, 0.01, t); };
+    const usbC = (v, h) => { rr(h - 0.21, v - 0.52, h + 0.21, v + 0.52, 0.2, P('#dadcdf', 1, 0.16)); rr(h - 0.14, v - 0.44, h + 0.14, v + 0.44, 0.14, hole); rr(h - 0.035, v - 0.3, h + 0.035, v + 0.3, 0.03, tongue); };
+    const jack = (v, h) => { g.fillStyle = P('#c9a64b', 1, 0.3); g.beginPath(); g.arc(X(h), v, 0.34, 0, TAU); g.fill(); g.fillStyle = hole; g.beginPath(); g.arc(X(h), v, 0.19, 0, TAU); g.fill(); };
+    const lab = (s, h, v, size = 0.13) => { g.fillStyle = ink; cmText(g, s, X(h), v, size, { w: 600 }); };
+    g.fillStyle = ink; rogEye(g, X(3.75), 1.75, 0.38); g.fill();
+    // DisplayPort, Clear CMOS and the boxed BIOS FlashBack button
+    g.fillStyle = shell; poly(g, [[X(1.9), 1.2], [X(2.5), 1.2], [X(2.5), 2.95], [X(2.05), 2.95], [X(1.9), 2.8]]); g.fill();
+    g.fillStyle = hole; poly(g, [[X(1.96), 1.27], [X(2.44), 1.27], [X(2.44), 2.88], [X(2.07), 2.88], [X(1.96), 2.77]]); g.fill();
+    rr(2.15, 1.45, 2.25, 2.7, 0.01, tongue); lab('DP', 2.8, 2.07, 0.12);
+    rr(0.6, 1.5, 0.9, 1.8, 0.03, P('#5a5c60', 0.2, 0.5)); lab('CLR', 1.15, 1.65, 0.09);
+    g.strokeStyle = ink; g.lineWidth = 0.025; g.strokeRect(X(0.45), 2.27, 0.5, 1.28); rr(0.55, 2.6, 0.85, 2.9, 0.03, P('#3e4044', 0.2, 0.5)); lab('FLBK', 1.15, 2.9, 0.09);
+    // HDMI, mounted vertically
+    g.fillStyle = shell; poly(g, [[X(0.6), 3.57], [X(1.95), 3.57], [X(1.95), 4.08], [X(1.82), 4.23], [X(0.73), 4.23], [X(0.6), 4.08]]); g.fill();
+    g.fillStyle = hole; poly(g, [[X(0.67), 3.63], [X(1.88), 3.63], [X(1.88), 4.05], [X(1.78), 4.16], [X(0.77), 4.16], [X(0.67), 4.05]]); g.fill();
+    rr(0.82, 3.82, 1.72, 3.9, 0.01, tongue); lab('HDMI', 2.25, 3.9, 0.12);
+    // Intel 2.5 GbE over the BIOS FlashBack 10 Gbps Type-A over USB4 40 Gbps Type-C #1
+    rr(2.2, 4.8, 3.2, 6.3, 0.04, shell); rr(2.26, 4.9, 3.12, 6.2, 0.03, hole); rr(2.26, 5.3, 2.44, 5.8, 0.01, P('#0d0d0e', 0, 0.8));
+    for (let k = 0; k < 8; k++) rr(2.92, 5.0 + k * 0.155, 3.06, 5.06 + k * 0.155, 0, P('#c9a64b', 1, 0.3));
+    lab('2.5G', 3.6, 5.55, 0.15); usbA(5.55, 1.65, red); g.strokeRect(X(1.3), 4.82, 0.7, 1.46); usbC(5.6, 0.78); lab('40G', 0.78, 4.72, 0.11);
+    // 10 Gbps Type-A pairs over USB4 40 Gbps Type-C #2 (DP alt mode), then over the 10 Gbps Type-C with 30 W PD
+    for (const v of [7.78, 9.95]) { usbA(v, 2.78, red); usbA(v, 2.03, red); usbC(v, 0.78); lab('10G', 3.4, v, 0.12); }
+    lab('DP 40G', 0.78, 8.65, 0.1); lab('10G', 0.78, 10.82, 0.1);
+    // four 5 Gbps Type-A, the Wi-Fi 7 Q-Antenna jacks (the gold barrels are modelled) and audio
+    for (const h of [3.075, 2.3, 1.55, 0.8]) usbA(12.05, h, blue);
+    for (const h of [1.0, 3.15]) { g.fillStyle = P('#d8cfae', 0.2, 0.5); g.beginPath(); g.arc(X(h), 13.55, 0.46, 0, TAU); g.fill(); }
+    lab('WI-FI 7', 2.08, 13.55, 0.13);
+    jack(14.85, 3.0); jack(14.85, 1.95); lab('MIC IN', 3.0, 15.5, 0.1); lab('LINE OUT', 1.95, 15.5, 0.1);
+    rr(0.5, 14.45, 1.3, 15.2, 0.04, P('#2a2b2f', 0.3, 0.5)); rr(0.63, 14.58, 1.17, 15.07, 0.02, hole); rr(0.76, 14.71, 1.04, 14.94, 0.02, P('#3b3d42', 0, 0.3));
+    lab('SPDIF', 0.9, 15.5, 0.1);
+  },
+  // I/O shroud top (matte white): x = u + 1.2, y = v − 0.5; grey print round the lit eye
+  shA(g, P) {
+    poly(g, [[0.1, 0.1], [6.06, 0.1], [7.0, 1.04], [7.0, 14.8], [0.1, 14.8]]);
+    g.fillStyle = P('#eaebed', 0, 0.62); g.fill();
+    g.save(); g.clip();
+    g.fillStyle = P('#d3d6da', 0, 0.45);   // the diffuser cells under the eye
+    EYE.forEach((row, j) => [...row].forEach((b, i) => { if (b === '1') g.fillRect(2.15 + i * 0.3 - 0.14, 4.9 + j * 0.3 - 0.14, 0.28, 0.28); }));
+    const ink = P('#b2b5b9', 0, 0.55);
+    g.strokeStyle = g.fillStyle = ink; g.lineWidth = 0.03;
+    poly(g, [[0.35, 0.55], [5.7, 0.55], [6.55, 1.4], [6.55, 13.9], [6.0, 14.45], [0.35, 14.45]]); g.stroke();   // frame, cut corners
+    // FOR THOSE / WHO DARE in sheared pixel letters round the eye
+    const sh = (x, y, s, c) => { g.save(); g.transform(1, -0.32, 0, 1, x, y); pixText(g, s, 0, 0, c, 0.1); g.restore(); };
+    sh(3.0, 2.23, 'FOR', 0.153); sh(3.3, 4.0, 'THOSE', 0.072); sh(5.2, 10.2, 'WHO', 0.059); sh(2.9, 11.0, 'DARE', 0.113);
+    cmText(g, 'REPUBLIC OF GAMERS', 1.5, 5.0, 0.2, { w: 600, sp: 0.2, rot: Math.PI / 2 });
+    cmText(g, 'SINCE 2006', 2.0, 11.95, 0.17, { w: 600, sp: 0.06, rot: 1.26 });
+    for (let i = 0; i < 4; i++) { const x = 2.9 + i * 0.48; poly(g, [[x, 12.5], [x + 0.22, 12.5], [x + 0.62, 13.25], [x + 0.22, 14.0], [x, 14.0], [x + 0.4, 13.25]]); g.fill(); }
+    sparkle(g, 6.0, 3.2, 0.2); sparkle(g, 1.0, 13.9, 0.16); sparkle(g, 6.1, 12.2, 0.14);
+    g.restore();
+  },
+  // top VRM heatsink, brushed silver: x = u − 5.0, y = v − 0.6; raised plate to y 1.9, then the lower front step
+  vrA(g, P, o) {
+    poly(g, [[1.9, 0.6], [3.3, 0.6], [3.3, 0], [12.6, 0], [12.6, 2.7], [1.9, 2.7]]);
+    if (o) g.fillStyle = P('', 1, 0.34);
+    else { const gr = g.createLinearGradient(0, 0, 12.6, 2.7); gr.addColorStop(0, '#d2d5d9'); gr.addColorStop(0.5, '#b9bcc1'); gr.addColorStop(1, '#cdd0d4'); g.fillStyle = gr; }
+    g.fill(); g.save(); g.clip();
+    brushX(g, P, o, 12.6, 2.7, 41);
+    g.strokeStyle = P('#8d9096', 1, 0.45); g.lineWidth = 0.05;   // chamfer grooves at both ends
+    for (const x0 of [1.9, 2.35, 2.8, 3.25, 3.7, 4.15, 10.2, 10.65, 11.1, 11.55, 12.0]) { g.beginPath(); g.moveTo(x0, 2.7); g.lineTo(x0 + 1.5, 0); g.stroke(); }
+    g.fillStyle = P('#7d8086', 1, 0.5); g.fillRect(1.9, 1.88, 10.7, 0.04);
+    g.restore();
+  },
+  // M.2_1 heatsink: x = u − 1.7, y = v − 15.5; brushed silver plate to x 12.6, the white ribbed Q-Release lever after it
+  m21A(g, P, o) {
+    g.fillStyle = P('#c9ccd1', 1, 0.34); g.fillRect(0, 0, 12.6, 2.25);
+    brushX(g, P, o, 12.6, 2.25, 43, 240);
+    g.fillStyle = P('#dfe1e4', 1, 0.28);
+    for (const [a, b] of [[3.0, 4.4], [7.2, 7.7]]) { poly(g, [[a, 2.25], [b, 2.25], [b + 1.6, 0], [a + 1.6, 0]]); g.fill(); }
+    g.fillStyle = P('#b0b3b8', 1, 0.4); cmText(g, 'S', 1.6, 1.15, 2.6, { w: 'italic 800', st: 0.8 });   // STRIX runs on over the lower cover
+    g.fillStyle = P('#55585d', 0.6, 0.5); cmText(g, 'ROG STRIX', 11.1, 0.32, 0.17, { w: 700, sp: 0.04 });
+    g.fillStyle = P('#e6e7e9', 0, 0.5); g.fillRect(12.6, 0, 0.7, 2.25);
+    g.fillStyle = P('#c2c4c8', 0, 0.55); for (let i = 0; i < 7; i++) g.fillRect(12.68, 0.35 + i * 0.24, 0.54, 0.08);
+  },
+  // lower M.2 cover (M.2_2-4): x = u − 1.0, y = v − 19.6; dot-matrix silver, a lighter diagonal band, ghost TRIX
+  llA(g, P) {
+    poly(g, [[0.06, 0.06], [14.37, 0.06], [17.54, 5.74], [0.06, 5.74]]);
+    g.fillStyle = P('#c6c9ce', 1, 0.36); g.fill(); g.save(); g.clip();
+    g.fillStyle = P('#dadcdf', 1, 0.3); poly(g, [[6.6, 0], [9.6, 0], [17.0, 5.8], [14.0, 5.8]]); g.fill();
+    g.fillStyle = P('#b3b6bb', 1, 0.38); cmText(g, 'TRIX', 11.5, 2.75, 5.0, { w: 'italic 800', st: 0.5 });
+    g.fillStyle = P('#a9acb1', 1, 0.42);
+    for (let j = 0; j < 32; j++) for (let x = 0.2 + (j % 2) * 0.09; x < 17.6; x += 0.18) g.fillRect(x - 0.025, 0.2 + j * 0.18 - 0.025, 0.05, 0.05);
+    screwArt(g, P, 2.8, 4.4); screwArt(g, P, 15.2, 4.4);
+    g.restore();
+  },
+  // chipset cover (white): x = u − 15.1, y = v − 17.9; ROG and ASUS HQ's coordinates, a star, line-art grid, an eye outline
+  chA(g, P) {
+    poly(g, [[0.06, 0.06], [9.24, 0.06], [9.24, 7.44], [3.69, 7.44], [0.49, 1.64], [0.06, 1.64]]);
+    g.fillStyle = P('#e4e5e8', 0.1, 0.5); g.fill(); g.save(); g.clip();
+    const ink = P('#8f9297', 0.1, 0.55);
+    g.strokeStyle = g.fillStyle = ink; g.lineWidth = 0.02;
+    for (let x = 1.2; x < 9.3; x += 0.6) { g.beginPath(); g.moveTo(x, 2.2); g.lineTo(x, 7.5); g.stroke(); }
+    for (let y = 2.2; y < 7.5; y += 0.6) { g.beginPath(); g.moveTo(0, y); g.lineTo(9.3, y); g.stroke(); }
+    cmText(g, 'ROG', 1.3, 0.42, 0.24, { w: 800 }); cmText(g, `25°07'29.3"N 121°28'17.3"E`, 4.4, 0.42, 0.15, { w: 500, fam: MONO });
+    sparkle(g, 1.25, 2.1, 0.55); cmText(g, 'ROG', 8.6, 0.9, 0.24, { w: 800, rot: Math.PI / 2 });
+    g.lineWidth = 0.04; rogEye(g, 6.6, 4.4, 0.8); g.stroke();
+    g.restore();
+  },
+  // bottom bar (white): x = u − 1.0, y = v − 25.4
+  barA(g, P) {
+    g.fillStyle = P('#e2e3e6', 0.1, 0.5); g.fillRect(1.16, 0.16, 22.18, 2.28);
+    g.fillStyle = P('#d0d2d6', 0.1, 0.5);
+    for (let i = 0; i < 8; i++) { const x = 3.4 + i * 2.2; poly(g, [[x, 2.44], [x + 0.5, 2.44], [x + 1.6, 0.16], [x + 1.1, 0.16]]); g.fill(); }
+    g.fillStyle = P('#8f9297', 0.1, 0.55); cmText(g, 'ROG STRIX', 20.4, 1.3, 0.3, { w: 800, sp: 0.08 });
+    screwArt(g, P, 2.8, 1.6); screwArt(g, P, 22.7, 1.6);
+  },
+};
+const atlasMapA = canvasTex(ATW, ATH, g => drawAtlas(g, 1, false, ATLA, ARTA));
+const atlasORMA = canvasTex(ATW / 2, ATH / 2, g => drawAtlas(g, 0.5, true, ATLA, ARTA), { srgb: false });
 
 // Q-Code: POST progress codes while the board starts, then the CPU temperature; the power section sets qcodeText
 const SEG = { 0: 'abcdef', 1: 'bc', 2: 'abdeg', 3: 'abcdg', 4: 'bcfg', 5: 'acdfg', 6: 'acdefg', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg', A: 'abcefg', B: 'cdefg', C: 'adef', D: 'bcdeg', E: 'adefg', F: 'aefg' };
@@ -1929,6 +2138,16 @@ const BM = {
   standby: std({ color: 0x1a0503, roughness: 0.4, emissive: 0xff2a1a, emissiveIntensity: 3.5 }),
 };
 BM.decal.userData.env = 0.85;
+// the X870-A's own: white PCB and moulded shroud, brushed-silver and white-painted covers
+const BA = {
+  pcb: std({ map: pcbMapA, roughnessMap: pcbORMA, metalnessMap: pcbORMA, roughness: 1, metalness: 1 }),
+  pcbEdge: std({ color: 0xd9dadd, roughness: 0.7 }),
+  decal: std({ map: atlasMapA, roughnessMap: atlasORMA, metalnessMap: atlasORMA, roughness: 1, metalness: 1, alphaTest: 0.5 }),
+  shroud: tag(micro(phys({ color: 0xe9eaec, metalness: 0, roughness: 0.62 }), MOLDED), 0, 0.7),
+  silver: tag(micro(phys({ color: 0xc4c7cc, metalness: 1, roughness: 0.34, roughnessMap: brushR, normalMap: brushN, normalScale: new THREE.Vector2(0.12, 0.12) }), BRUSH), 0.35, 0.85),
+  white: tag(micro(phys({ color: 0xe2e3e6, metalness: 0.15, roughness: 0.5 }), BLAST), 0, 0.75),
+};
+BA.decal.userData.env = 0.85;
 
 // ---- geometry helpers in board space ----
 const UZ = new THREE.Vector3(0, 0, 1), UY = new THREE.Vector3(0, 1, 0);
@@ -1952,12 +2171,13 @@ function sweepU(prof, u0, u1, mat, parent = board) {
   geo.applyMatrix4(new THREE.Matrix4().set(0, -1, 0, BX, -1, 0, 0, BTOP, 0, 0, -1, BREAR + u1, 0, 0, 0, 1));
   return add(geo, mat, 0, 0, 0, parent);
 }
-// plane cut from atlas region `key` (region cm a0..a1 × b0..b1), centred at pos, its x / y along ox / oy
+// plane cut from atlas region `key` (region cm a0..a1 × b0..b1), centred at pos, its x / y along ox / oy; ATLA keys use the
+// X870-A's atlas
 function decal(key, a0, b0, a1, b1, pos, ox, oy, parent = board) {
-  const [x, y, , , ppc] = ATL[key], w = a1 - a0, h = b1 - b0;
+  const A = Object.hasOwn(ATLA, key), [x, y, , , ppc] = (A ? ATLA : ATL)[key], w = a1 - a0, h = b1 - b0;
   const geo = new THREE.PlaneGeometry(w, h), uv = geo.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, (x + (a0 + uv.getX(i) * w) * ppc) / ATW, 1 - (y + (b1 - uv.getY(i) * h) * ppc) / ATH);
-  const m = add(geo, BM.decal, pos.x, pos.y, pos.z, parent);
+  const m = add(geo, A ? BA.decal : BM.decal, pos.x, pos.y, pos.z, parent);
   m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(ox, oy, new THREE.Vector3().crossVectors(ox, oy)));
   return m;
 }
@@ -1981,7 +2201,16 @@ function wallHdr(u0, v0, u1, cols, top, mat = M.plastic) {
 }
 
 // ---- the board ----
-board = part('ASUS ROG STRIX X870E-E GAMING WIFI', 'AMD X870E, AM5 ATX · 18+2+2 power stages (110 A VCORE/SoC, 80 A MISC) · 4 × DDR5 to 256 GB · PCIe 5.0 x16 SafeSlot + PCIe 4.0 x16 (x4) · 5 × M.2 (3 × PCIe 5.0) · 2 × USB4 · Wi-Fi 7 · Realtek 5 GbE · SupremeFX ALC4080');
+// the finish picks the board (BOARD_LAYOUT): parts both share (socket and CPU, DIMM slots, EPS headers, top-edge headers,
+// mounting screws) build into the root; each model's own into boardE / boardA, shown by finish. X870-A spec from
+// rog.asus.com/motherboards/rog-strix/rog-strix-x870-a-gaming-wifi/spec/
+const BOARDS = {
+  black: ['ASUS ROG STRIX X870E-E GAMING WIFI', 'AMD X870E, AM5 ATX · 18+2+2 power stages (110 A VCORE/SoC, 80 A MISC) · 4 × DDR5 to 256 GB · PCIe 5.0 x16 SafeSlot + PCIe 4.0 x16 (x4) · 5 × M.2 (3 × PCIe 5.0) · 2 × USB4 · Wi-Fi 7 · Realtek 5 GbE · SupremeFX ALC4080'],
+  snow: ['ASUS ROG STRIX X870-A GAMING WIFI', 'AMD X870, AM5 ATX · 16+2+2 power stages (90 A VCORE/SoC, 80 A MISC) · 4 × DDR5 to 256 GB · PCIe 5.0 x16 SafeSlot + PCIe 4.0 x16 (x4) · 4 × M.2 (2 × PCIe 5.0) · 2 × USB4 · Wi-Fi 7 · Intel 2.5 GbE · SupremeFX ALC4080'],
+};
+const boardRoot = board = part(...BOARDS.black);
+const boardE = part(...BOARDS.black, boardRoot), boardA = part(...BOARDS.snow, boardRoot);
+board = boardE;
 add(new THREE.PlaneGeometry(BW, BH), BM.pcb, BX - 0.01, BTOP - BH / 2, BREAR + BW / 2, board).rotation.y = -Math.PI / 2;
 box(0.16, BH, BW, BM.pcbEdge, BX + 0.08, BTOP - BH / 2, BREAR + BW / 2, board);
 
@@ -2009,6 +2238,7 @@ ob(6.0, 1.3, 8.3, 3.5, 0, 2.25, BM.sink); ob(8.3, 0.35, 16.4, 3.5, 0, 2.25, BM.s
 plan([[9.4, 0.5], [15.7, 0.5], [16.4, 1.2], [16.4, 3.3], [9.4, 3.3]], 2.25, 2.95, BM.sink, board, 0.05);
 plan([[6.0, 1.75], [6.45, 1.3], [6.75, 1.3], [6.75, 3.5], [6.0, 3.5]], 2.25, 3.15, BM.sink, board, 0.05);
 flat('vrm', 9.1, 0.5, 9.4, 0.5, 16.4, 3.3, 2.955);
+board = boardRoot;
 for (let i = 0; i < 9; i++) cyl(0.2, 0.2, 0.85, 14, BM.cap, BX - 0.425, BTOP - 4.3 - i, BREAR + 8.6, 'x', board);
 // ProCool II 8-pin EPS × 2: metal-sheathed housings, latch ramp on the board-edge side over one 2 × 2 half
 for (const u0 of [4.2, 6.2]) {
@@ -2036,19 +2266,21 @@ for (const u of DIMM_U) {
   ob(u - 0.33, 15.0, u + 0.33, 15.45, 0, 0.92, M.plastic);
   ob(u - 0.315, 9.0, u + 0.315, 9.1, 0.79, 0.812, M.plasticWhite);
 }
-// top edge: CPU_FAN, CPU_OPT, AIO_PUMP, CHA_FAN5, Q-Code with Q-LEDs, white ADD GEN2_1, START and FlexKey
-for (const u0 of [17.2, 18.3, 19.4, 20.5]) wallHdr(u0, 0.12, u0 + 0.95, 4, true);
-ob(21.6, 0.12, 23.1, 1.08, 0, 0.45, M.plastic);
-add(new THREE.PlaneGeometry(1.3, 0.8), BM.qcode, BX - 0.452, BTOP - 0.6, BREAR + 22.35, board).rotation.y = -Math.PI / 2;
+// top edge: CPU_FAN, CPU_OPT, AIO_PUMP, Q-LEDs, white ADD GEN2_1; the X870E-E adds CHA_FAN5, the Q-Code, START and FlexKey
+for (const u0 of [17.2, 18.3, 19.4]) wallHdr(u0, 0.12, u0 + 0.95, 4, true);
 for (let i = 0; i < 4; i++) ob(21.89 + i * 0.3, 1.33, 22.01 + i * 0.3, 1.5, 0, 0.06, BM.qled[i]);
 wallHdr(23.2, 1.35, 24.0, 3, false, M.plasticWhite);
+ob(21.7, 4.4, 22.7, 5.3, 0, 0.45, BM.can);
+for (const [u, v] of [[21.75, 2.95], [21.75, 3.75], [22.3, 3.75], [22.3, 6.3], [22.75, 8.0], [22.75, 9.5], [22.75, 11.0], [22.75, 11.75]]) cyl(0.25, 0.25, 0.85, 14, BM.cap, BX - 0.425, BTOP - v, BREAR + u, 'x', board);
+board = boardE;
+wallHdr(20.5, 0.12, 21.45, 4, true);
+ob(21.6, 0.12, 23.1, 1.08, 0, 0.45, M.plastic);
+add(new THREE.PlaneGeometry(1.3, 0.8), BM.qcode, BX - 0.452, BTOP - 0.6, BREAR + 22.35, board).rotation.y = -Math.PI / 2;
 cyl(0.6, 0.6, 0.55, 28, M.steel, BX - 0.275, BTOP - 2.9, BREAR + 23.7, 'x', board);
 cyl(0.47, 0.47, 0.24, 28, M.blackGloss, BX - 0.67, BTOP - 2.9, BREAR + 23.7, 'x', board);
 flat('start', 23.2, 2.4, 23.2, 2.4, 24.2, 3.4, 0.792);
 add(new THREE.TorusGeometry(0.49, 0.028, 8, 40), BM.standby, BX - 0.74, BTOP - 2.9, BREAR + 23.7, board).rotation.y = Math.PI / 2;   // standby glow round the cap
 ob(23.4, 3.7, 24.0, 4.3, 0, 0.32, M.plastic); cyl(0.16, 0.16, 0.16, 14, M.plastic, BX - 0.4, BTOP - 4.0, BREAR + 23.7, 'x', board);
-ob(21.7, 4.4, 22.7, 5.3, 0, 0.45, BM.can);
-for (const [u, v] of [[21.75, 2.95], [21.75, 3.75], [22.3, 3.75], [22.3, 6.3], [22.75, 8.0], [22.75, 9.5], [22.75, 11.0], [22.75, 11.75]]) cyl(0.25, 0.25, 0.85, 14, BM.cap, BX - 0.425, BTOP - v, BREAR + u, 'x', board);
 // right edge: upright 24-pin, USB 20 Gbps Type-C and 5 Gbps headers, right-angle U5G_89 and SATA 6G × 4
 ob(23.25, 5.75, 24.2, 11.0, 0, 1.3, M.plastic); ob(24.2, 7.98, 24.3, 8.78, 0.5, 0.92, M.plastic);
 ob(23.45, 11.2, 24.0, 12.5, 0, 1.0, M.steel); ob(23.6, 11.35, 23.85, 12.35, 0.99, 1.006, M.blackGloss);
@@ -2070,20 +2302,22 @@ decal('combo', 0, 0, 11.1, 1.845, new THREE.Vector3(BX - 1.755, BTOP - 14.928, B
   add(t, M.steel, 0, 0, 0, board);
 }
 // PCIEX16(G5) in SafeSlot steel and PCIEX16(G4) in black, both with the Q-Release Slim latch at the DIMM end
-for (const [v0, mat] of [[PCIE1.v0, M.steel], [28.29, M.plastic]]) {
+function pcieSlot(v0, mat, trim = M.plastic) {
   ob(PCIE1.u0, v0, PCIE1.u1, v0 + 0.8, 0, 1.1, mat);
   ob(PCIE1.u0 + 0.12, v0 + 0.3, PCIE1.u1 - 0.12, v0 + 0.5, 1.09, 1.106, M.blackGloss);
-  ob(PCIE1.u0 + 1.14, v0 + 0.28, PCIE1.u0 + 1.26, v0 + 0.52, 1.09, 1.11, M.plastic);
-  ob(PCIE1.u0 - 0.15, v0 + 0.05, PCIE1.u0, v0 + 0.75, 0, 1.0, M.plastic);
-  ob(PCIE1.u1, v0 + 0.06, PCIE1.u1 + 1.4, v0 + 0.74, 0, 0.95, M.plastic);
-  ob(PCIE1.u1 + 0.85, v0 + 0.1, PCIE1.u1 + 1.35, v0 + 0.7, 0.95, 1.15, M.plastic);
+  ob(PCIE1.u0 + 1.14, v0 + 0.28, PCIE1.u0 + 1.26, v0 + 0.52, 1.09, 1.11, trim);
+  ob(PCIE1.u0 - 0.15, v0 + 0.05, PCIE1.u0, v0 + 0.75, 0, 1.0, trim);
+  ob(PCIE1.u1, v0 + 0.06, PCIE1.u1 + 1.4, v0 + 0.74, 0, 0.95, trim);
+  ob(PCIE1.u1 + 0.85, v0 + 0.1, PCIE1.u1 + 1.35, v0 + 0.7, 0.95, 1.15, trim);
 }
+pcieSlot(PCIE1.v0, M.steel); pcieSlot(28.29, M.plastic);
 // M.2_2 heatsink over an empty PCIe 5.0 slot (under the graphics card)
 ob(2.45, 17.25, 12.65, 19.35, 0, 0.4, BM.sink);
 plan([[2.3, 17.1], [12.8, 17.1], [12.8, 19.5], [2.3, 19.5]], 0.38, 1.1, BM.sink, board, 0.1);
 flat('m22', 2.3, 17.1, 2.3, 17.1, 12.8, 19.5, 1.104);
 // M.2_1 (PCIe 5.0, CPU): the 990 PRO under the tool-free Q-Release heatsink
-const ssd = part('Samsung 990 PRO 2 TB', 'M.2 2280 PCIe 4.0 x4 NVMe 2.0 · 7,450 / 6,900 MB/s · 2 GB LPDDR4 cache · 1,200 TBW · in M.2_1 under the Q-Release heatsink', board);
+const SSD = ['Samsung 990 PRO 2 TB', 'M.2 2280 PCIe 4.0 x4 NVMe 2.0 · 7,450 / 6,900 MB/s · 2 GB LPDDR4 cache · 1,200 TBW · in M.2_1 under the Q-Release heatsink'];
+const ssd = part(...SSD, board);
 ob(14.1, 17.3, 14.5, 19.4, 0, 0.45, M.plastic, ssd);
 ob(14.45, 17.2, 22.45, 19.4, 0.22, 0.46, M.plastic, ssd);
 ob(22.6, 17.85, 23.0, 18.75, 0, 0.42, M.plastic, ssd);
@@ -2111,15 +2345,90 @@ for (const [u, v] of [[2.4, 28.65], [3.05, 28.65], [2.4, 29.3], [3.05, 29.3], [3
 cyl(1.05, 1.05, 0.22, 32, M.plastic, BX - 0.11, BTOP - 28.85, BREAR + 20.75, 'x', board);
 cyl(0.99, 0.99, 0.23, 32, M.steel, BX - 0.335, BTOP - 28.85, BREAR + 20.75, 'x', board);
 flat('batt', 19.75, 27.85, 19.75, 27.85, 21.75, 29.85, 0.453);
+board = boardRoot;
 for (const [u, v] of pcbPlan.holes.slice(1)) {
   cyl(0.3, 0.3, 0.12, 20, M.steel, BX - 0.06, BTOP - v, BREAR + u, 'x', board);
   cyl(0.12, 0.12, 0.14, 6, M.plastic, BX - 0.07, BTOP - v, BREAR + u, 'x', board);
 }
 
 // rear I/O shield in the case cut-out; the Q-Antenna barrels stand proud and the LAN link / 5G LEDs are lit
+board = boardE;
 decal('io', 0, 0, 4.3, 16, new THREE.Vector3(1.55, 31, zB + 0.1), new THREE.Vector3(-1, 0, 0), UY);
 for (const h of [1.3, 3.35]) cyl(0.3, 0.3, 0.6, 16, BM.gold, BX - h, BTOP - 13.0, zB - 0.2, 'z', board);
 for (const v of [10.84, 12.06]) box(0.12, 0.2, 0.02, v < 11 ? BM.lanAct : BM.lan, BX - 3.37, BTOP - v, zB + 0.088, board);   // ACT/LINK, then SPEED
+
+// ---- ASUS ROG STRIX X870-A GAMING WIFI (Snow) ----
+// white PCB, the icy-white I/O shroud with a lit ROG eye, silver VRM sinks with no heat pipe, silver and white M.2 and
+// chipset covers (TechPowerUp's review, page 3); its x16 slot sits a slot pitch lower and its 24-pin higher (BOARD_LAYOUT)
+board = boardA;
+add(new THREE.PlaneGeometry(BW, BH), BA.pcb, BX - 0.01, BTOP - BH / 2, BREAR + BW / 2, board).rotation.y = -Math.PI / 2;
+box(0.16, BH, BW, BA.pcbEdge, BX + 0.08, BTOP - BH / 2, BREAR + BW / 2, board);
+// I/O shroud: one moulding over the port stack and the I/O-side VRM, top corner chamfered, a lit diffuser at its tail
+plan([[-1.2, 0.5], [4.9, 0.5], [5.9, 1.5], [5.9, 15.4], [-1.2, 15.4]], 0, 4.0, BA.shroud, board, 0.1);
+flat('shA', -1.2, 0.5, -1.2, 0.5, 5.925, 15.5, 4.004);
+{
+  const px = [];
+  EYE.forEach((row, j) => [...row].forEach((b, i) => {
+    if (b === '1') px.push(new THREE.PlaneGeometry(0.24, 0.24).rotateY(-Math.PI / 2).translate(BX - 4.009, BTOP - 5.4 - j * 0.3, BREAR + 0.95 + i * 0.3));
+  }));
+  add(mergeGeometries(px), rgbMat(0.85, 0.3, 'aura'), 0, 0, 0, board);
+  ob(2.0, 15.4, 3.0, 15.62, 0.8, 3.4, rgbMat(0.6, 0.45, 'aura'));
+}
+// VRM: a white slotted block along the shroud, then the brushed-silver top bar (raised plate, a lower front step)
+for (const [v0, v1] of [[1.5, 5.0], [5.2, 7.4], [7.6, 10.1], [10.3, 12.6], [12.8, 14.4]]) ob(5.9, v0, 6.9, v1, 0, 3.3, BA.white);
+ob(6.9, 1.2, 8.3, 2.5, 0, 2.7, BA.silver); ob(8.3, 0.6, 17.6, 2.5, 0, 2.7, BA.silver); ob(6.9, 2.5, 17.6, 3.3, 0, 2.1, BA.silver);
+flat('vrA', 5.0, 0.6, 6.9, 0.6, 17.6, 2.5, 2.704); flat('vrA', 5.0, 0.6, 6.9, 2.5, 17.6, 3.3, 2.104);
+// M.2_1 (PCIe 5.0, CPU) above the x16 slot: the 990 PRO under the Q-Release heatsink
+const ssdA = part(...SSD, board);
+ob(3.2, 15.9, 11.2, 17.1, 0.22, 0.46, M.plastic, ssdA);
+ob(1.7, 15.5, 14.3, 17.75, 0.46, 1.1, BA.silver, ssdA); ob(14.3, 15.5, 15.0, 17.75, 0.46, 1.05, BA.white, ssdA);
+flat('m21A', 1.7, 15.5, 1.7, 15.5, 14.3, 17.75, 1.104, ssdA); flat('m21A', 1.7, 15.5, 14.3, 15.5, 15.0, 17.75, 1.054, ssdA);
+// x16 slots: steel SafeSlot with a white latch, the chipset slot in white
+pcieSlot(PCIE1.v0 + BOARD_LAYOUT.snow.slot * 2.032, M.steel, M.plasticWhite); pcieSlot(28.29, M.plasticWhite, M.plasticWhite);
+// lower M.2 cover (M.2_2-4) under the card, its diagonal edge against the white chipset cover, and the bottom bar
+plan([[1.0, 19.6], [15.4, 19.6], [18.6, 25.4], [1.0, 25.4]], 0, 0.85, BA.silver, board, 0.06);
+flat('llA', 1.0, 19.6, 1.0, 19.6, 18.6, 25.4, 0.854);
+plan([[15.1, 17.9], [24.4, 17.9], [24.4, 25.4], [18.75, 25.4], [15.55, 19.6], [15.1, 19.6]], 0, 1.0, BA.white, board, 0.06);
+flat('chA', 15.1, 17.9, 15.1, 17.9, 24.4, 25.4, 1.004);
+plan([[2.1, 25.5], [24.4, 25.5], [24.4, 27.9], [2.1, 27.9]], 0, 0.8, BA.white, board, 0.06);
+flat('barA', 1.0, 25.4, 2.1, 25.5, 24.4, 27.9, 0.804);
+// right edge: upright 24-pin, USB 20 Gbps Type-C and two 5 Gbps headers
+const atxA = BOARD_LAYOUT.snow.atx24;
+ob(23.25, atxA, 24.2, atxA + 5.25, 0, 1.3, M.plastic); ob(24.2, atxA + 2.23, 24.3, atxA + 3.03, 0.5, 0.92, M.plastic);
+ob(23.45, 9.0, 24.0, 10.3, 0, 1.0, M.steel); ob(23.6, 9.15, 23.85, 10.15, 0.99, 1.006, M.blackGloss);
+for (const v0 of [10.7, 13.2]) { ob(23.4, v0, 24.1, v0 + 1.8, 0, 0.9, M.plastic); ob(23.55, v0 + 0.2, 23.95, v0 + 1.6, 0.89, 0.906, M.blackGloss); }
+// bottom edge: F_AUDIO, white ADD GEN2_2/3, CHA_FAN1-4, USB 2.0 × 2, START, CHA_FAN5, CMOS battery, PCIe mode switch, F_PANEL
+pinHdr(2.9, 29.6, 4.2, 5, 2);
+for (const u0 of [4.5, 5.7]) wallHdr(u0, 29.6, u0 + 1.0, 3, false, M.plasticWhite);
+for (const u0 of [6.9, 8.1, 9.3, 10.5, 17.4]) wallHdr(u0, 29.6, u0 + 1.0, 4, false);
+for (const u0 of [11.8, 13.4]) pinHdr(u0, 29.6, u0 + 1.4, 5, 2);
+cyl(0.6, 0.6, 0.55, 28, M.steel, BX - 0.275, BTOP - 29.9, BREAR + 16.5, 'x', board);
+cyl(0.47, 0.47, 0.24, 28, M.blackGloss, BX - 0.67, BTOP - 29.9, BREAR + 16.5, 'x', board);
+flat('start', 16.0, 29.4, 16.0, 29.4, 17.0, 30.4, 0.792);
+add(new THREE.TorusGeometry(0.49, 0.028, 8, 40), BM.standby, BX - 0.74, BTOP - 29.9, BREAR + 16.5, board).rotation.y = Math.PI / 2;
+cyl(1.05, 1.05, 0.22, 32, M.plastic, BX - 0.11, BTOP - 28.95, BREAR + 19.6, 'x', board);
+cyl(0.99, 0.99, 0.23, 32, M.steel, BX - 0.335, BTOP - 28.95, BREAR + 19.6, 'x', board);
+flat('batt', 18.6, 27.95, 18.6, 27.95, 20.6, 29.95, 0.453);
+ob(21.0, 29.65, 22.2, 30.1, 0, 0.35, M.plasticWhite); flat('sw', 21.0, 29.65, 21.0, 29.65, 22.2, 30.1, 0.354);
+pinHdr(22.9, 29.6, 24.2, 5, 2);
+for (const [u, v] of [[1.6, 28.65], [2.25, 28.65], [1.6, 29.3], [2.25, 29.3], [2.25, 29.95]]) cyl(0.27, 0.27, 0.85, 16, BM.gold, BX - 0.425, BTOP - v, BREAR + u, 'x', board);
+// white I/O shield; the Q-Antenna barrels and the 2.5 GbE LEDs at this board's positions
+decal('ioA', 0, 0, 4.3, 16, new THREE.Vector3(1.55, 31, zB + 0.1), new THREE.Vector3(-1, 0, 0), UY);
+for (const h of [1.0, 3.15]) cyl(0.3, 0.3, 0.6, 16, BM.gold, BX - h, BTOP - 13.55, zB - 0.2, 'z', board);
+for (const v of [4.95, 6.15]) box(0.12, 0.2, 0.02, v < 5 ? BM.lanAct : BM.lan, BX - 3.1, BTOP - v, zB + 0.088, board);
+board = boardRoot;
+
+// the finish swaps the board: the slot and 24-pin move with it (MOUNTS, the board-side cables' blocks below), so a
+// change of layout rebuilds the card, its cable and the hoses against the new mounts
+onFinish(f => {
+  boardE.visible = f !== 'snow'; boardA.visible = f === 'snow';
+  boardRoot.userData.part = boardE.userData.part = boardA.userData.part = { name: BOARDS[f][0], spec: BOARDS[f][1] };
+  const moved = MOUNTS.finish !== f, s = BOARD_LAYOUT[f].slot, p = MOUNTS.pcie1, dv = s * MOUNTS.gpuBay.slotPitch;
+  MOUNTS.finish = f; MOUNTS.gpuBay.slot = s; MOUNTS.gpuBay.top = GPU_BAY.top - dv;
+  Object.assign(p, { v0: PCIE1.v0 + dv, v1: PCIE1.v1 + dv });
+  Object.assign(p, { yTop: boardY(p.v0), yMid: boardY((p.v0 + p.v1) / 2), yBottom: boardY(p.v1) });
+  if (moved && mounted.gpu) parts.rebuild('gpu');
+});
 
 // Corsair Type 5 cables from the RM1000x SHIFT: the 24-pin and two EPS 4+4 pin leads, plugs seated. Each PVC-jacketed
 // wire leaves its plug, follows the bundle path and runs into its PSU-side wire just behind the tray grommet: the end
@@ -2129,7 +2438,8 @@ const V3 = a => new THREE.Vector3(...a);
 const gEnd = ({ c, a, b, sp }, ci, k, cols) => V3(c).addScaledVector(V3(a), (ci - (cols - 1) / 2) * sp).addScaledVector(V3(b), (k - 0.5) * sp);
 // path: bundle centreline from inside the plug to the grommet; side = tangent × up. ws: [oc, ok, end, ext] per wire,
 // its plug offset along up / side, the PSU wire's end and the direction into it. The offsets blend over t 0.35…0.92.
-function wires(parent, path, up, r, ws, comb) {
+// Returns the bundle's bounding box for MOUNTS.blocks.
+function wires(parent, path, up, r, ws, comb, mat = WIRE) {
   const base = new THREE.CatmullRomCurve3(path.map(V3), false, 'centripetal');
   const N = 40, S = base.getSpacedPoints(N), upV = V3(up).normalize();
   const side = S.map((_, i) => new THREE.Vector3().crossVectors(base.getTangentAt(i / N), upV).normalize());
@@ -2144,40 +2454,69 @@ function wires(parent, path, up, r, ws, comb) {
     pts.push(end.clone().addScaledVector(V3(ext).normalize(), 0.25));
     geos.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, r, 8, false));
   }
-  add(mergeGeometries(geos), WIRE, 0, 0, 0, parent);
+  const geo = mergeGeometries(geos);
+  add(geo, mat, 0, 0, 0, parent);
+  geo.computeBoundingBox();
   if (comb) {   // low-profile comb across the plug grid: [fraction along the path, columns, rows, pitch]
     const [t, cols, rows, sp] = comb, i = Math.round(t * N), T = base.getTangentAt(t);
     const m = box(rows * sp + 0.12, cols * sp + 0.16, 0.42, M.plastic, 0, 0, 0, parent, 0.05);
     m.position.copy(S[i]); m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(side[i].clone().negate(), upV, T));
   }
+  return { min: geo.boundingBox.min.toArray(), max: geo.boundingBox.max.toArray() };
 }
-const cables = part('Corsair Type 5 cables (board side)', '24-pin ATX (10 + 18-pin at the PSU) and 2 × EPS12V 4+4 pin from the RM1000x SHIFT · PVC jacketed, low-profile combs');
-// 24-pin plug with its latch arm over the header's ramp
-ob(23.22, 5.72, 24.23, 11.03, 1.3, 2.4, M.plastic, cables); ob(24.23, 7.98, 24.36, 8.78, 0.95, 2.25, M.plastic, cables);
-// EPS 4+4 plugs: two 2 × 2 halves, latch arm on the board-edge side
-for (const u0 of [4.2, 6.2]) {
-  for (const a of [0.05, 0.925]) ob(u0 + a, 0.12, u0 + a + 0.825, 1.08, 1.3, 2.35, M.plastic, cables);
-  ob(u0 + 0.31, -0.02, u0 + 0.61, 0.12, 0.95, 2.2, M.plastic, cables);
+// Black runs the stock PVC Type 5 leads; Snow the white Premium Individually Sleeved Type 5 Pro Kit (CP-8920293: 24-pin
+// 610 mm 16 AWG, EPS 750 mm 18 AWG, triple-layer paracord, black connectors and pre-installed interlocking combs;
+// corsair.com/us/en/p/pc-components-accessories/cp-8920293, AWG from help.corsair.com/hc/en-us/articles/9106314662157).
+// Corsair gives no sleeved diameter; each wire is taken as 4 mm across (what combs for this sleeving are sized for), one per pin.
+const BOARD_CABLES = {
+  black: ['Corsair Type 5 cables (board side)', '24-pin ATX (10 + 18-pin at the PSU) and 2 × EPS12V 4+4 pin from the RM1000x SHIFT · PVC jacketed, low-profile combs'],
+  snow: ['Corsair Premium Individually Sleeved Type 5 cables, White (board side)', 'CP-8920293 Pro Kit: 24-pin ATX 610 mm 16 AWG and 2 × EPS12V 4+4 pin 750 mm 18 AWG from the RM1000x SHIFT · triple-layer paracord sleeving, black connectors, interlocking combs'],
+};
+const cables = part(...BOARD_CABLES.black);
+const cablesE = part(...BOARD_CABLES.black, cables), cablesA = part(...BOARD_CABLES.snow, cables);
+const SLEEVED = sleevedWire();
+// the hose router keeps clear of the bundles: the finish's three boxes, in place in MOUNTS.blocks
+const cableBlocks = [0, 1, 2].map(() => ({})), cableBoxes = { black: [], snow: [] };
+MOUNTS.blocks.push(...cableBlocks);
+for (const [g, f, v0] of [[cablesE, 'black', BOARD_LAYOUT.black.atx24], [cablesA, 'snow', BOARD_LAYOUT.snow.atx24]]) {
+  // 24-pin plug with its latch arm over the header's ramp
+  ob(23.22, v0 - 0.03, 24.23, v0 + 5.28, 1.3, 2.4, M.plastic, g); ob(24.23, v0 + 2.23, 24.36, v0 + 3.03, 0.95, 2.25, M.plastic, g);
+  // EPS 4+4 plugs: two 2 × 2 halves, latch arm on the board-edge side
+  for (const u0 of [4.2, 6.2]) {
+    for (const a of [0.05, 0.925]) ob(u0 + a, 0.12, u0 + a + 0.825, 1.08, 1.3, 2.35, M.plastic, g);
+    ob(u0 + 0.31, -0.02, u0 + 0.61, 0.12, 0.95, 2.2, M.plastic, g);
+  }
 }
 {
-  // 24-pin: 28 wires (the 4 sense wires share pins at the plug); the 10-pin wires fill the top 5 plug columns, the
-  // 18-pin wires fan over the lower 7. Plug columns run along y at the 4.2 mm pitch.
+  // 24-pin: PVC has 28 wires (the 4 sense wires share pins at the plug), the sleeved kit 24; the 10-pin wires fill the
+  // top 5 plug columns, the 18-pin wires fan over the lower 7. Plug columns run along y at the 4.2 mm pitch.
   const P10 = { c: [4.25, 32.3, 5.95], a: [0, 0.886, 0.464], b: [0, 0.464, -0.886], sp: 0.33, e: [0.981, -0.192, 0] };
   const P18 = { c: [4.25, 28.5, 5.25], a: [0, 0.786, 0.618], b: [0, 0.618, -0.786], sp: 0.33, e: [0.965, -0.262, 0] };
-  const ws = [];
+  const ws = [], wsA = [];
   for (let k = 0; k < 2; k++) {
-    for (let ci = 0; ci < 5; ci++) ws.push([(1.5 + ci) * 0.42, k ? -0.21 : 0.21, gEnd(P10, ci, k, 5), P10.e]);
+    for (let ci = 0; ci < 5; ci++) { const w = [(1.5 + ci) * 0.42, k ? -0.21 : 0.21, gEnd(P10, ci, k, 5), P10.e]; ws.push(w); wsA.push(w); }
     for (let ci = 0; ci < 9; ci++) ws.push([(0.75 * ci - 5.5) * 0.42, k ? -0.21 : 0.21, gEnd(P18, ci, k, 9), P18.e]);
+    [0, 1, 3, 4, 5, 7, 8].forEach((ci, j) => wsA.push([(j - 5.5) * 0.42, k ? -0.21 : 0.21, gEnd(P18, ci, k, 9), P18.e]));
   }
-  wires(cables, [[1.65, 30.625, 1.725], [0.85, 30.6, 1.75], [0.3, 30.45, 2.85], [0.6, 30.3, 4.5], [2.2, 30.1, 5.45], [3.6, 30.0, 5.55], [4.25, 30.0, 5.55]],
-    [0, 1, 0], 0.132, ws, [0.3, 12, 2, 0.42]);
   // EPS 4+4: plug columns along z, rows along y; up to the top grommet beside each other
   const E1 = { c: [4.25, 41.8, -16.95], a: [-0.012, -0.067, 0.998], b: [0.178, 0.982, 0.068], sp: 0.42, e: [0.959, -0.285, 0] };
   const E2 = { c: [4.25, 41.8, -15.35], a: [-0.008, -0.047, 0.999], b: [0.178, 0.983, 0.047], sp: 0.42, e: [0.959, -0.284, 0] };
   const eps = E => { const w = []; for (let ci = 0; ci < 4; ci++) for (let k = 0; k < 2; k++) w.push([(ci - 1.5) * 0.42, k ? -0.21 : 0.21, gEnd(E, ci, k, 4), E.e]); return w; };
-  wires(cables, [[1.7, 38.4, -16.9], [0.85, 38.45, -16.9], [0.45, 39.5, -16.9], [0.95, 41.0, -16.92], [2.5, 41.75, -16.95], [3.7, 41.8, -16.95], [4.25, 41.8, -16.95]], [0, 0, 1], 0.168, eps(E1));
-  wires(cables, [[1.7, 38.4, -14.9], [0.85, 38.45, -14.9], [0.6, 39.6, -15.0], [1.15, 41.05, -15.2], [2.6, 41.75, -15.33], [3.7, 41.8, -15.35], [4.25, 41.8, -15.35]], [0, 0, 1], 0.168, eps(E2));
+  const epsPaths = [[[1.7, 38.4, -16.9], [0.85, 38.45, -16.9], [0.45, 39.5, -16.9], [0.95, 41.0, -16.92], [2.5, 41.75, -16.95], [3.7, 41.8, -16.95], [4.25, 41.8, -16.95]],
+    [[1.7, 38.4, -14.9], [0.85, 38.45, -14.9], [0.6, 39.6, -15.0], [1.15, 41.05, -15.2], [2.6, 41.75, -15.33], [3.7, 41.8, -15.35], [4.25, 41.8, -15.35]]];
+  cableBoxes.black.push(wires(cablesE, [[1.65, 30.625, 1.725], [0.85, 30.6, 1.75], [0.3, 30.45, 2.85], [0.6, 30.3, 4.5], [2.2, 30.1, 5.45], [3.6, 30.0, 5.55], [4.25, 30.0, 5.55]],
+    [0, 1, 0], 0.132, ws, [0.3, 12, 2, 0.42]));
+  cableBoxes.black.push(...epsPaths.map((p, i) => wires(cablesE, p, [0, 0, 1], 0.168, eps([E1, E2][i]))));
+  // the X870-A's 24-pin sits 2.65 cm higher: the bundle leaves it there and drops to the same grommet run
+  cableBoxes.snow.push(wires(cablesA, [[1.65, 33.275, 1.725], [0.85, 33.25, 1.75], [0.3, 33.0, 2.85], [0.55, 32.3, 4.5], [2.2, 30.8, 5.45], [3.6, 30.0, 5.55], [4.25, 30.0, 5.55]],
+    [0, 1, 0], 0.2, wsA, [0.3, 12, 2, 0.42], SLEEVED));
+  cableBoxes.snow.push(...epsPaths.map((p, i) => wires(cablesA, p, [0, 0, 1], 0.2, eps([E1, E2][i]), null, SLEEVED)));
 }
+onFinish(f => {
+  cablesE.visible = f !== 'snow'; cablesA.visible = f === 'snow';
+  cables.userData.part = cablesE.userData.part = cablesA.userData.part = { name: BOARD_CABLES[f][0], spec: BOARD_CABLES[f][1] };
+  cableBoxes[f].forEach((b, i) => Object.assign(cableBlocks[i], b));
+});
 }
 // ===== END SECTION board =====
 
@@ -2189,6 +2528,8 @@ for (const u0 of [4.2, 6.2]) {
 // heights are scaled so the tall end meets the official 44 mm.
 const RAM_L = 13.335, RAM_T = 0.76;                                     // JEDEC PCB length; 7.6 mm thick (retail listing)
 const rmX = mm => mm / 10 - RAM_L / 2, rmY = mm => mm * 0.1016;
+// the populated DIMMs' module envelopes (the only kit fills A2 and B2), for the hose router: height toward the glass, length up
+for (const d of PART_SPECS.tz5neo.slots.map(i => MOUNTS.dimm[i])) MOUNTS.blocks.push({ min: [d.x - rmY(43.3), d.y - RAM_L / 2, d.z - RAM_T / 2], max: [d.x, d.y + RAM_L / 2, d.z + RAM_T / 2] });
 const RAM_E0 = 3.0, RAM_E1 = RAM_L * 10 - 3.0, RAM_IN = 0.15;          // heatspreader ends (mm); inner shell layer (cm)
 const rmTop = x => 36.0 + 7.3 * THREE.MathUtils.smoothstep(x, 64, 91);  // shell top: low light-bar run, ogee, tall end
 const rmCurve = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => { const x = a + (b - a) * i / n; return [x, rmTop(x)]; });
@@ -2543,19 +2884,20 @@ for (const sz of [-1, 1]) for (const sy of [-1, 1]) {
 // swivel barrels under the cap, close to the rear; each turns about x, and both outlet collars are swivelled 70° off
 // vertical, the rear one rearward and the front one forward, so the hoses leave already heading along the card
 const EY = PY - PR - 0.08;
-const SW = 70 * Math.PI / 180;
+// outlet swivels: the rear one tips 70° back, the front one 80° so its hose clears the 24-pin and the DIMMs
+const SW = 70 * Math.PI / 180, SWF = 80 * Math.PI / 180, swv = dz => dz > 0 ? SWF : SW;
 for (const dz of [-1, 1]) {
   cyl(0.9, 0.9, 1.5, 32, AM.body, 0.2, EY, PZ + dz, 'x', pump);
   for (const e of [-1, 1]) {
     const cap = add(new THREE.SphereGeometry(0.9, 24, 8, 0, TAU, 0, Math.PI / 2), AM.body, 0.2 + e * 0.75, EY, PZ + dz, pump);
     cap.rotation.z = -e * Math.PI / 2; cap.scale.y = 0.45;
   }
-  cyl(0.82, 0.82, 0.4, 32, AM.body, 0.05, EY - 0.95 * Math.cos(SW), PZ + dz * (1 + 0.95 * Math.sin(SW)), null, pump).rotation.x = -dz * SW;
+  cyl(0.82, 0.82, 0.4, 32, AM.body, 0.05, EY - 0.95 * Math.cos(swv(dz)), PZ + dz * (1 + 0.95 * Math.sin(swv(dz))), null, pump).rotation.x = -dz * swv(dz);
 }
 
 // ---------- tubing: the hoses are their own part (buildHoses); this keeps the geometry both ends share ----------
 // start inside the barrel and leave along the swivelled outlet's axis; the hose then eases level just above the card
-const exit = (dz, ts) => ts.map(t => [0.05, EY - t * Math.cos(SW), PZ + dz * (1 + t * Math.sin(SW))]);
+const exit = (dz, ts) => ts.map(t => [0.05, EY - t * Math.cos(swv(dz)), PZ + dz * (1 + t * Math.sin(swv(dz)))]);
 const RX = mounts.radBay.x, RB = mounts.radBay.top - 2.7, RYc = mounts.radBay.top - 1.35, FY = mounts.radBay.fanFace, FT = RB - FY;
 const CORE = 18.15, TANK = 1.9, PORT_Z = -(CORE + TANK / 2), PORTS = [RX + 2.7, RX - 2.7];
 // ---------- radiator ----------
@@ -2676,7 +3018,7 @@ FZ.forEach((zc, i) => {
     speed: () => spec.fans.dir * (spec.fans.speed[0] + Math.random() * spec.fans.speed[1]),   // about 800–880 RPM at idle
   });
 });
-const SWd = [-1, 1].map(dz => [0, -Math.cos(SW), dz * Math.sin(SW)]);
+const SWd = [-1, 1].map(dz => [0, -Math.cos(swv(dz)), dz * Math.sin(swv(dz))]);
 return { group, anchors: {
   outlets: [-1, 1].map((dz, i) => ({ p: exit(dz, [0.15])[0], d: SWd[i] })),
   ports: PORTS.map(x => ({ p: [x, FY - 0.3, PORT_Z], d: [0, 1, 0], collar: [x, FY - 0.62, PORT_Z] })),
@@ -2694,25 +3036,31 @@ function buildHoses(spec, mounts, kit) {
     { black: { color: 0x1a1a1c, sheenColor: 0x6d7077 }, snow: { color: 0xe0e1e4, sheenColor: 0xffffff } });
   // each hose: outlet → a waypoint just above the card → its port, as wide as the case allows. Rear hose first; the
   // front one keeps 2r + 0.2 from it. Rules: bend ≥ spec.minBend (front: spec.minBendFront), ≥ spec.clear between the
-  // hose and the card top, inside the glass, and out of the keepOut cylinders (the pump's own first 2.5 cm are exempt)
+  // hose and the card top, inside the glass, out of the keepOut cylinders (the pump's own first 2.5 cm are exempt) and
+  // clear of the mounts.blocks boxes (the board-side 24-pin and EPS bundles, the DIMMs)
   const body = mounts.anchors.gpu.body, top = mounts.anchors.gpu.top, gx = mounts.glass.innerX;
   const laneY = top + r + spec.clear, done = [];
   // everything ok() reads besides the path, for laneRoute's memo; the front hose also depends on the rear one, so keys chain
-  let key = JSON.stringify([r, spec.clear, body.min, body.max, gx, A.keepOut]);
+  let key = JSON.stringify([r, spec.clear, body.min, body.max, gx, A.keepOut, mounts.blocks]);
   const EXEMPT = 2.5;   // the first 2.5 cm of a hose sit inside the pump's outlet, so only the cap cylinder applies there
   // the search tests 49 samples, and a chord of a tight bend cuts inside the arc by up to ~0.015 cm at the optimum, so the keep-outs get a little extra
   // room while searching; the hoses check re-tests the final curve at 256 samples against the bare cylinders
   const CHORD = 0.015;
   const inCyl = (q, k) => q.x > k.x[0] - r - CHORD && q.x < k.x[1] + r + CHORD && Math.hypot(q.y - k.c[0], q.z - k.c[1]) < k.r + r + CHORD;
+  // the sleeve stays BLOCK_GAP off each mounts.blocks box
+  const BLOCK_GAP = 0.15, m = r + BLOCK_GAP + CHORD;
+  const inBlock = q => mounts.blocks.some(b => q.x > b.min[0] - m && q.x < b.max[0] + m && q.y > b.min[1] - m && q.y < b.max[1] + m && q.z > b.min[2] - m && q.z < b.max[2] + m);
   const curves = A.outlets.map((o, i) => {
     const port = A.ports[i], p0 = new THREE.Vector3(...o.p);
     const ok = path => path.getSpacedPoints(48).every(q =>
       q.x - r >= gx + 0.3 &&
       !(q.x > body.min[0] - r && q.x < body.max[0] + r && q.z > body.min[2] - r && q.z < body.max[2] + r && q.y < laneY - 1e-6) &&
-      (q.distanceTo(p0) < EXEMPT ? !inCyl(q, A.keepOut[0]) : !A.keepOut.some(k => inCyl(q, k))) &&
+      (q.distanceTo(p0) < EXEMPT ? !inCyl(q, A.keepOut[0]) : !A.keepOut.some(k => inCyl(q, k))) && !inBlock(q) &&
       done.every(pts => pts.every(w => w.distanceTo(q) >= 2 * r + 0.2)));
     const best = kit.laneRoute({ p0: o.p, d0: o.d, p1: port.p, d1: port.d, laneY, minBend: i ? spec.minBendFront : spec.minBend, ok, key: key += '|' + i,
-      x: [gx + r + 0.4, o.p[0]], z: [body.min[2] + r, body.max[2] - r] });
+      // over a shorter card (the 5070 FE) the waypoint may still go as far forward as over a 304 mm one: the room past its
+      // tail is open, and ok() still holds the hose to the glass, keep-outs and blocks there
+      x: [gx + r + 0.4, o.p[0]], z: [body.min[2] + r, Math.max(body.max[2], mounts.gpuBay.rearZ + mounts.gpuBay.laneLength) - r] });
     done.push(best.path.getSpacedPoints(96));
     return kit.sleeved(tubes, best.path, r, sleeve).curve;
   });
@@ -2769,6 +3117,7 @@ function buildGpuFE(spec, mounts, kit) {
   const io = gpuIoMats(kit);
 
   // ---- materials ----
+  const LIT = spec.lit !== false;                  // lit V edges and wordmark (the 5070 FE has neither)
   const C = {
     frame: tag(micro(phys({ color: 0x6c6862, metalness: 1, roughness: 0.4 }), CAST), 0, 1.0),
     cap: tag(micro(phys({ color: 0x141517, metalness: 0.1, roughness: 0.5 }), MOLDED), 0, 0.5),
@@ -2782,8 +3131,10 @@ function buildGpuFE(spec, mounts, kit) {
     darkMetal: std({ color: 0x34363a, metalness: 1, roughness: 0.4 }),     // heat pipes and tail-end screws
     portShell: io.portShell,
     pcb: io.pcb,
-    led: statusLed(std({ color: 0x2a2c30, roughness: 0.4, emissive: 0xffffff }), 1.5, 'gpu'),   // hidden when unlit
-    word: statusLed(std({ color: 0xbfc2c6, roughness: 0.55, emissive: 0xffffff, emissiveMap: wordA, alphaMap: wordA, alphaTest: 0.5, alphaToCoverage: true }), 1.4, 'gpu'),
+    led: LIT && statusLed(std({ color: 0x2a2c30, roughness: 0.4, emissive: 0xffffff }), 1.5, 'gpu'),   // hidden when unlit
+    // the wordmark glows on a lit card; an unlit one (5070 FE) has it etched into the frame
+    word: LIT ? statusLed(std({ color: 0xbfc2c6, roughness: 0.55, emissive: 0xffffff, emissiveMap: wordA, alphaMap: wordA, alphaTest: 0.5, alphaToCoverage: true }), 1.4, 'gpu')
+      : std({ color: 0x8e8c88, metalness: 1, roughness: 0.3, alphaMap: wordA, alphaTest: 0.5, alphaToCoverage: true }),
     printW: std({ color: 0xd2d4d8, roughness: 0.6, alphaMap: modelA, alphaTest: 0.5, alphaToCoverage: true }),
     printD: std({ color: 0x1c1d1f, roughness: 0.6, alphaMap: modelA, alphaTest: 0.5, alphaToCoverage: true }),
   };
@@ -2804,7 +3155,8 @@ function buildGpuFE(spec, mounts, kit) {
 
   // X arms: centre lines from the middle of the card to the edges at s = ±LAND; n = (B, A) is the
   // top-left arm's normal, so the line n·(s, t) = c has s = (c − A t) / B
-  const ARM = 0.3, LAND = 6.6, BAND = 0.4, BEV = 0.28;     // arm half width, landing, face band, edge radius
+  const ARM = 0.3, LAND = spec.land ?? 6.6, BAND = 0.4, BEV = 0.28;     // arm half width, landing, face band, edge radius
+  const K = LAND / 6.6;                                     // the frame's scale against the 5080 FE: places the vents and prints
   const L = Math.hypot(LAND, hx), A = LAND / L, B = hx / L;
   const armS = (c, t) => (c - A * t) / B;
   const FAN_S = spec.fans.pitch, FAN_R = spec.fans.radius;                      // fan centres at s = ∓FAN_S, tip-ring radius
@@ -2854,8 +3206,8 @@ function buildGpuFE(spec, mounts, kit) {
     rotor: rotor => {
       const crisp = add(rotorGeo, C.blade, 0, 0, 0, rotor);
       add(ringGeo, C.blade, 0, 0, 0, rotor);
-      cyl(2.05, 2.05, 1.44, 48, C.blade, 0, 0, -0.02, 'z', rotor);
-      add(new THREE.CircleGeometry(1.84, 48), C.spun, 0, 0, -0.746, rotor).rotation.y = Math.PI;
+      cyl(2.05 * FAN_R / 5.62, 2.05 * FAN_R / 5.62, 1.44, 48, C.blade, 0, 0, -0.02, 'z', rotor);   // hub in proportion to the fan
+      add(new THREE.CircleGeometry(1.84 * FAN_R / 5.62, 48), C.spun, 0, 0, -0.746, rotor).rotation.y = Math.PI;
       return { crisp, mat: C.blade };
     },
     blade: GPU_BLADE, blades: spec.fans.blades, mirror: false, kind: 'gpu',
@@ -2863,31 +3215,31 @@ function buildGpuFE(spec, mounts, kit) {
   });
 
   // white accent light tucked under the V edges of both loops, on both faces (static white, logo-style)
-  for (const m of [1, -1]) for (const y of [0.2, GT - 0.18]) {
-    const c = -ARM - 0.33, pts = [5.4, 2.6, 0.9].map(t => [armS(c, t), t]);
+  if (LIT) for (const m of [1, -1]) for (const y of [0.2, GT - 0.18]) {
+    const c = -ARM - 0.33, pts = [5.4, 2.6, 0.9].map(t => [armS(c, t * K), t * K]);
     const path = [...pts, [c / B - 0.25, 0], ...pts.slice().reverse().map(([s, t]) => [s, -t])];
     const curve = new THREE.CatmullRomCurve3(path.map(([s, t]) => new THREE.Vector3(-t, y, m * s)));
     add(new THREE.TubeGeometry(curve, 48, 0.05, 6, false), C.led, 0, 0, 0, gpu);
   }
 
   // top edge: lit GEFORCE RTX on the tail crown, two slot vents and the 12V-2x6 pocket in the black cap
-  decal(new THREE.PlaneGeometry(6.0, 0.9), C.word, -hx - 0.006, GT / 2, 10.5, [0, 0, 1], [0, 1, 0]);
+  decal(new THREE.PlaneGeometry(6.0 * K, 0.9), C.word, -hx - 0.006, GT / 2, hz - 4.7, [0, 0, 1], [0, 1, 0]);
   // slot vents: dark groove inside a lighter lip; the pair sits about 30% and 45% of the way from the fan face
   const slot = (len, wid, s, y, side) => {
     for (const [grow, mat, o] of [[0.1, C.slotRim, 0.005], [0, C.void, 0.01]])
       decal(new THREE.ShapeGeometry(roundedRect(len + grow, wid + grow, (wid + grow) / 2), 6), mat, side * (capTop + o), y, s, [0, 0, 1], [0, -side, 0]);
   };
-  for (const y of [1.15, 1.8]) { slot(8.3, 0.3, -1.45, y, -1); slot(9.6, 0.3, 0, y, 1); }
+  for (const y of [1.15, 1.8]) { slot(8.3 * K, 0.3, -1.45 * K, y, -1); slot(9.6 * K, 0.3, 0, y, 1); }
   const SOCK = spec.socket;                     // socket face centre; it faces up and toward the tail at 45°
   decal(new THREE.ShapeGeometry(roundedRect(2.3, 2.5, 0.25), 4), C.void, -capTop - 0.004, GT / 2, SOCK.s + 0.57, [0, 0, 1], [0, 1, 0]);   // pocket mouth
   // back face: "RTX 5080" (about 38 mm long, 6 mm caps) printed in the top triangle along the bracket-side arm,
   // from near the top edge toward the waist, reading once installed; stays inside the cap's flat face (t < 6.33)
   {
-    const c = ARM + 0.55, t = 4.7;
+    const c = ARM + 0.55, t = 4.7 * K;
     decal(new THREE.PlaneGeometry(3.9, 3.9 * 112 / 512), C.printW, -t, GT - 0.1 + 0.004, armS(c, t), [B, 0, A], [A, 0, -B]);
   }
   // fan face: small "RTX 5080" on the lower bracket-side arm
-  decal(new THREE.PlaneGeometry(1.7, 1.7 * 112 / 512), C.printD, 4.9, -0.004, -A * 4.9 / B, [-B, 0, A], [-A, 0, -B]);
+  decal(new THREE.PlaneGeometry(1.7, 1.7 * 112 / 512), C.printD, 4.9 * K, -0.004, -A * 4.9 * K / B, [-B, 0, A], [-A, 0, -B]);
   // tail end: two removable screws for a support bracket
   for (const t of [-2.5, 2.5]) {
     cyl(0.2, 0.2, 0.06, 20, C.darkMetal, -t, 1.05, hz + 0.01, 'z', gpu);
@@ -2933,7 +3285,9 @@ function gpuPcieEdge(parent, { gcz, gy, hx }, mounts, mats) {
   }
 }
 // I/O bracket, built in root coordinates under the counter group R: matte black, raised bezel plate, ports from spec.bracket
-function gpuBracket(R, spec, mounts, mats) {
+function gpuBracket(R0, spec, mounts, mats) {
+  // the figures below are for the top two slots; a card in a lower slot (the X870-A's) drops by whole slot pitches
+  const R = new THREE.Group(); R.position.y = -mounts.gpuBay.slot * mounts.gpuBay.slotPitch; R0.add(R);
   const BZ = mounts.gpuBay.bracketZ, PY = spec.bracket.portY;              // port row sits toward the backplate side
   const ports = spec.bracket.ports;   // x, DisplayPort?  (HDMI nearest the slot)
   const port = (x, dp, grow, P = THREE.Path) => {
@@ -2945,6 +3299,10 @@ function gpuBracket(R, spec, mounts, mats) {
   const plate = filletPoly([[-10.6, 18.84, 0], [2.0, 18.84, 0], [2.0, 22.9, 0], [-10.6, 22.9, 0]]);
   const bezel = roundedRect(9.34, 1.7, 0.3, -5.36, 21.88);
   for (const [x, dp] of ports) { plate.holes.push(port(x, dp, 0.03)); bezel.holes.push(port(x, dp, 0.03)); }
+  // exhaust vents in the slot beside the ports (5070 FE: its bracket-end fan blows out through four), dark behind
+  const nv = spec.bracket.vents || 0, VW = 1.5, VG = 0.3, vx0 = -5.35 - (nv * VW + (nv - 1) * VG) / 2;
+  for (let i = 0; i < nv; i++) plate.holes.push(roundedRect(VW, 1.3, 0.25, vx0 + VW / 2 + i * (VW + VG), 19.85));
+  if (nv) box(nv * (VW + VG), 1.4, 0.05, mats.void, -5.35, 19.85, BZ + 0.5, R);
   add(new THREE.ExtrudeGeometry(plate, { depth: 0.1, bevelEnabled: false }), mats.bracket, 0, 0, BZ - 0.05, R);
   add(new THREE.ExtrudeGeometry(bezel, { depth: 0.1, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 3, curveSegments: 6 }), mats.bracket, 0, 0, BZ - 0.18, R);
   for (const [x, dp] of ports) {
@@ -2956,8 +3314,8 @@ function gpuBracket(R, spec, mounts, mats) {
   }
   for (const x of [-9.62, -1.13]) for (const y of [19.5, 22.23]) cyl(0.16, 0.16, 0.06, 16, mats.bracket, x, y, y > 21 ? BZ - 0.23 : BZ - 0.07, 'z', R);
 }
-// A generic partner card: flat shroud with axial fans, the fin stack showing between shroud and backplate, a tail vent
-// in the backplate, an edge 12V-2x6 socket facing the glass, an LED strip and a small print. No partner logo.
+// A partner card: flat shroud with axial fans, the fin stack showing between shroud and backplate, a tail vent
+// in the backplate, an edge 12V-2x6 socket facing the glass, an LED strip (unless spec.lit is false) and a small print. No partner logo.
 function buildGpuAxial(spec, mounts, kit) {
   if (spec.bracketSlots !== 2) throw new Error(`${spec.id}: only 2-slot brackets are modelled; the chassis slot covers are fixed`);
   if (spec.socket.side !== 'edge') throw new Error(`${spec.id}: the axial builder models only an edge 12V-2x6 socket (socket.side 'edge')`);
@@ -2983,7 +3341,7 @@ function buildGpuAxial(spec, mounts, kit) {
     hub: kit.std({ color: 0x9a9da3, roughness: 0.3, metalness: 0.85 }),
     pcb: kit.std({ color: 0x0f1411, roughness: 0.7 }),
     socket: kit.std({ color: 0x141416, roughness: 0.6 }),
-    led: kit.statusLed(kit.std({ color: 0x2a2c30, roughness: 0.4, emissive: 0xffffff }), 1.2, 'gpu'),   // dark when unlit, as on the FE
+    led: spec.lit !== false && kit.statusLed(kit.std({ color: 0x2a2c30, roughness: 0.4, emissive: 0xffffff }), 1.2, 'gpu'),   // dark when unlit, as on the FE
     print: kit.decalMat({ color: 0xc9ccd1, roughness: 0.6, alphaMap: printA }),
   };
   const io = gpuIoMats(kit);
@@ -3016,7 +3374,7 @@ function buildGpuAxial(spec, mounts, kit) {
   kit.box(0.3, bandH, 9.0, A.shroud, -hx + 0.15, (finY0 + finY1) / 2, -hz + 5.0, gpu);
   const pl = kit.add(new THREE.PlaneGeometry(7.0, 0.875), A.print, -hx - 0.01, (finY0 + finY1) / 2, -hz + 5.0, gpu);
   pl.rotation.y = -Math.PI / 2;
-  kit.box(0.06, 0.18, GL - 2.0, A.led, -hx - 0.1, SH * 0.5, 0, gpu);
+  if (A.led) kit.box(0.06, 0.18, GL - 2.0, A.led, -hx - 0.1, SH * 0.5, 0, gpu);   // a card with no lighting (lit: false) has no strip
   // 12V-2x6 socket on the PCB edge, facing the glass
   const sock = [-hx - 0.2, GT - 0.75, spec.socket.s];
   kit.box(0.3, 0.8, 2.2, A.socket, -hx + 0.15, sock[1], sock[2], gpu, 0.05);   // 0.3 wide: ends at the fin box edge (−hx + 0.3), no overlap
@@ -3039,7 +3397,8 @@ function buildGpuAxial(spec, mounts, kit) {
   // through a counter-translated group, as on the FE
   gpuPcieEdge(gpu, { gcz, gy, hx }, mounts, io);
   const R0 = new THREE.Group(); R0.position.set(-gcx, -gy, -gcz); gpu.add(R0);
-  gpuBracket(R0, spec, mounts, io);
+  // a bracket.steel card (the Prime's) has a bare stainless bracket in place of the black one
+  gpuBracket(R0, spec, mounts, spec.bracket.steel ? { ...io, bracket: kit.std({ color: 0x9a9c9f, metalness: 1, roughness: 0.32 }) } : io);
   const focus = new THREE.Vector3(gcx, gy + GT / 2 + root.position.y, gcz + 1.5);
   return { group: gpu, focus, anchors: {
     body: { min: [gcx - hx, gy, gcz - hz], max: [gcx + hx, gy + GT, gcz + hz] },
@@ -3065,21 +3424,34 @@ function cableRoute({ sock, n, body, grommet, minX = -Infinity }) {
   // moves toward it in proportion: 0.115 per cm of drop (0.2 for the 5070 Ti), which keeps the tightest bend above the
   // ribbon's half-width. The FE's socket is at its mid: no change there.
   const a = Math.min(0.3, 0.115 * Math.max(0, sock[1] - mid)), p1 = [p0[0] + k * n[0], sock[1] + 0.15, p0[2] + k * n[2]].map((v, i) => v + (p2[i] - v) * a);
-  p1[0] = Math.max(p1[0], minX);
+  // the clamp pulls the first bend in no further than the plug end: past it, the run leaves the plug heading back from
+  // the glass and turns the ribbon's wide side toward it, so a wider (sleeved) ribbon only reaches further out
+  p1[0] = Math.max(p1[0], Math.min(minX, p0[0]));
+  // the turn under the card: 3.3 below its bottom, but never under 0.35 of the way down from the drop (bottom − 1) to the
+  // run toward the grommet. A card one slot lower (the Snow board's x16 slot) would put that point level with the run and
+  // fold the ribbon into an S there; when the floor lifts it, the run starts up to 0.8 lower to open the turn. Every card in
+  // the top slot clears the floor, so its route is unchanged.
+  const drop = bottom - 1.0, run = G[1] + 1.1, turn = run0 => Math.max(bottom - 3.3, run0 + 0.35 * (drop - run0));
+  const low = Math.min(0.8, 2 * (turn(run) - (bottom - 3.3))), t = turn(run - low);
   return [p0, p1, p2,
-    [ex - 1.85, bottom - 1.0, sock[2] + 3.35], [ex - 1.2, bottom - 3.3, sock[2] + 4.45],
-    [G[0] - 11.45, G[1] + 1.1, G[2] - 2.5], [G[0] - 5.15, G[1] + 0.2, G[2] - 0.65], G];
+    [ex - 1.85, drop, sock[2] + 3.35], [ex - 1.2, t, sock[2] + 4.45],
+    [G[0] - 11.45, run - low, G[2] - 2.5], [G[0] - 5.15, G[1] + 0.2, G[2] - 0.65], G];
 }
 // the cable's route with its clamp against the glass, as a pure function of the card (so a check can feed it a card moved
 // toward the glass). The cable's outermost surface (ribbon strands and comb) stays 0.1 cm inside the glass: the route is
 // pulled in by exactly what it overshoots, so a card that already clears the glass keeps its route. First through the
 // drop's outermost points (cableRoute's minX); if the overshoot comes from the later bends, those move by what is left.
 // Returns { pts, frames, comb (the frame the comb sits on), over (cm still past the limit, <= 0 when it clears) }.
+// a cable spec as built for the mounts' finish: spec.finishes[finish] merges over it (the Snow build's sleeved kit)
+const cableLook = (spec, mounts) => ({ ...spec, ...spec.finishes?.[mounts.finish] });
+// the comb's size across the ribbon: the stock comb, or wider for a ribbon that outgrows it
+const combSize = ({ cols, rows, sp }) => [Math.max(2.3, cols * sp + 0.2), Math.max(0.8, rows * sp + 0.16)];
 function fitGpuCable(spec, mounts, { sock, n, body }, clamp = true) {
-  const { cols, rows, sp, r } = spec.ribbon, half = (cols - 1) / 2 * sp + r, limit = mounts.glass.innerX + 0.1;
+  spec = cableLook(spec, mounts);
+  const { cols, rows, sp, r } = spec.ribbon, half = (cols - 1) / 2 * sp + r, limit = mounts.glass.innerX + 0.1, [cw, cd] = combSize(spec.ribbon);
   // the comb sits on the frame nearest the route's fourth point (just below the card's bottom edge), so it follows the route
   const combFrame = (pts, frames) => { const at = new THREE.Vector3(...pts[3]); return frames.reduce((a, f) => f[0].distanceToSquared(at) < a[0].distanceToSquared(at) ? f : a); };
-  const combReachX = ([p, up, side, tan]) => p.x - 1.15 * Math.abs(up.x) - 0.4 * Math.abs(side.x) - 0.21 * Math.abs(tan.x);
+  const combReachX = ([p, up, side, tan]) => p.x - cw / 2 * Math.abs(up.x) - cd / 2 * Math.abs(side.x) - 0.21 * Math.abs(tan.x);
   const measure = pts => {
     const frames = ribbonFrames(pts, spec.ups), comb = combFrame(pts, frames);
     return { pts, frames, comb, over: limit - Math.min(ribbonMinX(frames, cols, rows, sp, r), combReachX(comb)) };
@@ -3101,8 +3473,9 @@ function fitGpuCable(spec, mounts, { sock, n, body }, clamp = true) {
 function buildGpuCable(spec, mounts, kit) {
   // 12V-2x6 cable: plug seated at 45° in the pocket, leaves toward the glass, drops past the card's
   // top edge and runs underneath to the lower tray grommet
+  spec = cableLook(spec, mounts);
   const gpuCable = kit.part(spec.name, spec.spec);
-  const gpuWire = std({ color: 0x0d0d0e, roughness: 0.42, metalness: 0 });
+  const gpuWire = spec.wire === 'sleeved' ? sleevedWire() : std({ color: 0x0d0d0e, roughness: 0.42, metalness: 0 });
   const G = mounts.anchors.gpu.socket;
   const N = new THREE.Vector3(...G.n);   // plug axis in root space
   const sock = new THREE.Vector3(...G.p);
@@ -3119,7 +3492,7 @@ function buildGpuCable(spec, mounts, kit) {
   ribbon(gpuCable, pts, spec.ups, cols, rows, sp, r, gpuWire);
   {   // cable comb on the drop
     const [p, up, side, tan] = combF;
-    const comb = box(2.3, 0.8, 0.42, std({ color: 0x111214, roughness: 0.55 }), p.x, p.y, p.z, gpuCable, 0.08);
+    const comb = box(...combSize(spec.ribbon), 0.42, std({ color: 0x111214, roughness: 0.55 }), p.x, p.y, p.z, gpuCable, 0.08);
     comb.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(up, side, tan));
   }
   return { group: gpuCable, anchors: { route: pts, r: half } };
@@ -3656,6 +4029,13 @@ const psu = part('Corsair RM1000x SHIFT', '1000 W · ATX 3.1 / PCIe 5.1 · 80 PL
 }
 // PVC-jacketed wires from the plugs to the tray grommets, laid out cols × rows on a parallel-transported frame
 const psuCables = part('Corsair Type 5 cables (PSU side)', '24-pin (10 + 18-pin at the PSU), 2 × EPS 4+4 pin, 12V-2x6 600 W · PVC jacketed, low-profile combs');
+// Snow: the same runs in the white sleeved Pro Kit (CP-8920293) the board side shows; the bundles keep their PVC layout here
+finishSet(PM.wire, { black: { color: 0x0d0d0e, roughness: 0.42 }, snow: { color: 0xe6e7e9, roughness: 0.74 } });
+onFinish(f => {
+  psuCables.userData.part = f === 'snow'
+    ? { name: 'Corsair Premium Individually Sleeved Type 5 cables, White (PSU side)', spec: 'CP-8920293 Pro Kit: 24-pin (10 + 18-pin at the PSU), 2 × EPS 4+4 pin, 12V-2x6 600 W · triple-layer paracord sleeving, black connectors' }
+    : { name: 'Corsair Type 5 cables (PSU side)', spec: '24-pin (10 + 18-pin at the PSU), 2 × EPS 4+4 pin, 12V-2x6 600 W · PVC jacketed, low-profile combs' };
+});
 function psuWires(pts, col0, cols, rows, sp, combs = []) {
   const c = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)), false, 'centripetal');
   const n = 32, fr = c.computeFrenetFrames(n, false), T0 = fr.tangents[0];
@@ -3694,7 +4074,7 @@ for (const z of [-21.4, -9.4]) box(7.2, 0.5, 2.4, M.rubber, 9.3, 0.75, z, psu, 0
 // ===== END SECTION psu =====
 
 // ---------- environment: a frozen studio, dark and cold, with softboxes and strip lights ----------
-function studioEnvironment() {
+function studioEnvironment(forGlass = false) {
   const env = new THREE.Scene();
   const room = new THREE.Mesh(new THREE.BoxGeometry(140, 90, 140), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.019, 0.024, 0.032), side: THREE.BackSide }));
   room.position.y = 25;
@@ -3707,20 +4087,31 @@ function studioEnvironment() {
     m.position.set(...pos); m.lookAt(...look);
     env.add(m);
   };
-  panel(38, 26, 7, 0xf2f6ff, [-36, 36, 36], [0, 0, 0]);       // key softbox, front left (near neutral, a touch cool)
-  panel(5, 84, 12, 0xd2e2ff, [-54, 22, -24], [0, 22, 0]);    // strip, rear left (icy)
-  panel(5, 84, 10, 0xd2e2ff, [52, 22, -30], [0, 22, 0]);     // strip, rear right
-  panel(5, 84, 3, 0xeff4ff, [44, 22, 44], [0, 22, 0]);       // strip, front right
-  panel(70, 26, 0.3, 0xe0ebff, [-58, -6, -40], [0, 8, 0]);   // reflector cards, low left and right (snow bounce)
-  panel(70, 26, 0.25, 0xe0ebff, [58, -6, 46], [0, 8, 0]);
-  panel(64, 44, 1.6, 0xf0f5ff, [0, 68, 0], [0, 0, 0]);       // overhead scrim
-  panel(46, 12, 0.7, 0xe0ecff, [0, 2, -64], [0, 2, 0]);      // low rear bounce
+  if (forGlass) {
+    // the glass sees the same studio as a few narrow sources, so what it throws back is a thin bright edge, never a wide veil:
+    // a small key box and slim strips (a flat pane mirrors the whole 38 cm softbox as one big smear)
+    panel(10, 18, 3.2, 0xf2f6ff, [-36, 38, 36], [0, 0, 0]);
+    panel(1.6, 84, 11, 0xd2e2ff, [-54, 22, -24], [0, 22, 0]);
+    panel(1.6, 84, 9, 0xd2e2ff, [52, 22, -30], [0, 22, 0]);
+    panel(1.6, 84, 3, 0xeff4ff, [44, 22, 44], [0, 22, 0]);
+    panel(64, 44, 0.5, 0xf0f5ff, [0, 68, 0], [0, 0, 0]);
+  } else {
+    panel(38, 26, 7, 0xf2f6ff, [-36, 36, 36], [0, 0, 0]);       // key softbox, front left (near neutral, a touch cool)
+    panel(5, 84, 12, 0xd2e2ff, [-54, 22, -24], [0, 22, 0]);    // strip, rear left (icy)
+    panel(5, 84, 10, 0xd2e2ff, [52, 22, -30], [0, 22, 0]);     // strip, rear right
+    panel(5, 84, 3, 0xeff4ff, [44, 22, 44], [0, 22, 0]);       // strip, front right
+    panel(70, 26, 0.3, 0xe0ebff, [-58, -6, -40], [0, 8, 0]);   // reflector cards, low left and right (snow bounce)
+    panel(70, 26, 0.25, 0xe0ebff, [58, -6, 46], [0, 8, 0]);
+    panel(64, 44, 1.6, 0xf0f5ff, [0, 68, 0], [0, 0, 0]);       // overhead scrim
+    panel(46, 12, 0.7, 0xe0ecff, [0, 2, -64], [0, 2, 0]);      // low rear bounce
+  }
   const pmrem = new THREE.PMREMGenerator(renderer);
-  const tex = pmrem.fromScene(env, 0.015, 0.1, 400).texture;
+  const tex = pmrem.fromScene(env, forGlass ? 0.004 : 0.015, 0.1, 400).texture;
   pmrem.dispose();
   return tex;
 }
 const envTex = studioEnvironment();
+const glassEnvTex = studioEnvironment(true);
 
 // ---------- lights ----------
 const key = new THREE.DirectionalLight(0xfffcf8, 2.3);   // near neutral: part colours stay true
@@ -3968,7 +4359,7 @@ function prepMeshes(top, spins) {
 function applyEnv(mats) {
   for (const m of mats) {
     if (!m.isMeshStandardMaterial) continue;
-    m.envMap = envTex;
+    m.envMap = m.userData.glassEnv ? glassEnvTex : envTex;
     m.envMapIntensity = m.userData.env ?? 1;
   }
 }
@@ -4313,11 +4704,17 @@ const GPU_DIR = new THREE.Vector3(-0.86, 0.36, 0.38).normalize();
 const glassBtn = document.getElementById('glassBtn');
 const spinBtn = document.getElementById('spinBtn');
 const gpuBtn = document.getElementById('gpuBtn');
-let glassOn = true, glassT = 1;
+const backBtn = document.getElementById('backBtn');
+let glassOn = true, glassT = 1, backOn = true, backT = 1;
 glassBtn.addEventListener('click', () => {
   glassOn = !glassOn;
   glassBtn.classList.toggle('on', glassOn);
   glassBtn.textContent = glassOn ? 'Fitted' : 'Removed';
+});
+backBtn.addEventListener('click', () => {
+  backOn = !backOn;
+  backBtn.classList.toggle('on', backOn);
+  backBtn.textContent = backOn ? 'Fitted' : 'Removed';
 });
 document.querySelectorAll('.sw').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 // radio group keys: arrows move the selection, Home and End jump to the ends
@@ -4381,7 +4778,9 @@ function pick(x, y) {
   const r = renderer.domElement.getBoundingClientRect();
   ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  const hit = ray.intersectObjects(pickables, false)[0];
+  // a raycast ignores visibility: skip hidden meshes (the back panel while it is off, the other finish's board and cables)
+  const shown = o => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+  const hit = ray.intersectObjects(pickables, false).find(h => shown(h.object));
   return hit ? partOf(hit.object) : null;
 }
 renderer.domElement.addEventListener('pointermove', e => {
@@ -4443,14 +4842,14 @@ function frameChanged() {
   sig(p.x); sig(p.y); sig(p.z); sig(q.x); sig(q.y); sig(q.z); sig(q.w); sig(P[0]); sig(P[5]);
   // a rotor's angle shows while its blades are crisp or their blur still has a ripple; past 0.9 of a blade pitch it's even
   for (const s of spinners) {
-    const B = s.blur, D = B && B.on ? B.u.blurS.value.y : 0, even = B && B.on && Math.abs(D) >= 0.9 * TAU / s.blades;
-    sig(even ? 0 : s.obj.rotation.z); sig(even ? 0 : D);
+    const B = s.blur, D = B && B.on ? B.u.blurS.value.y : 0, even = B && B.k === 1 && Math.abs(D) >= 0.9 * TAU / s.blades;
+    sig(even ? 0 : s.obj.rotation.z); sig(even ? 0 : D); sig(B ? B.k : 0);
   }
   for (const e of rgbEntries) { sigColor(e.mat.emissive); sig(e.mat.emissiveIntensity); }
   for (const g of glow) { sigColor(g.light.color); sig(g.light.intensity); }
   for (const e of statusLeds) sig(e.mat.emissiveIntensity);
   sig(M.led.emissiveIntensity); sig(lcdMat.emissiveIntensity); sig(M.glassRefl.envMapIntensity);
-  sig(glassT); sig(pwrCap.position.z);
+  sig(glassT); sig(backT); sig(pwrCap.position.z);
   let v = 0; for (const t of dynTex) v += t.version;
   sig(v, 0);
   if (sigChanged) [frameSig, sigNow] = [sigNow, frameSig];
@@ -4466,12 +4865,16 @@ function frame() {
   let moved = false;   // anything that casts a shadow or shows in the AO
   for (const s of spinners) {
     const tgt = fanTarget(s);
-    s.w += (tgt - s.w) * (1 - Math.exp(-dt / (Math.abs(tgt) > Math.abs(s.w) ? s.tauUp : s.tauDown)));
+    const up = Math.abs(tgt) > Math.abs(s.w);
+    let dw = (tgt - s.w) * (1 - Math.exp(-dt / (up ? s.tauUp : s.tauDown)));
+    if (up) dw = Math.sign(dw) * Math.min(Math.abs(dw), SPIN_UP * dt);   // a motor's torque is finite: a start gathers pace instead of jumping
+    s.w += dw;
     if (tgt === 0) s.w = Math.sign(s.w) * Math.max(0, Math.abs(s.w) - 1.5 * dt);
     const D = s.w * Math.max(dt, SHUTTER), step = Math.abs(s.w) * fanRate * dt;
-    if (s.blur && showBlur(s.blur, D)) moved = true;
-    if (step > 0 && !(s.blur && s.blur.on)) moved = true;   // a blurred rotor is round: its turning changes neither
-    s.obj.rotation.z = (s.obj.rotation.z + Math.sign(s.w) * (s.blur && s.blur.on ? step : Math.min(step, 0.7 * Math.PI / s.blades))) % TAU;
+    if (s.blur && showBlur(s.blur, D, s.w * SHUTTER)) moved = true;
+    const veil = s.blur && s.blur.k === 1;   // only the blur is showing
+    if (step > 0 && !veil) moved = true;   // a blurred rotor is round: its turning changes neither
+    s.obj.rotation.z = (s.obj.rotation.z + Math.sign(s.w) * (veil ? step : Math.min(step, 0.7 * Math.PI / s.blades))) % TAU;
   }
   if (pressAnim > 0) {   // the button cap travels in and springs back
     moved = true;
@@ -4493,9 +4896,21 @@ function frame() {
     glassMatL.frit.opacity = e;
     glassL.visible = glassT > 0.01;
   }
+  // the steel back panel lifts away to the right (the tray side). It's opaque, so it travels out of the way and then hides;
+  // while it is off nothing picks it (pick() skips hidden meshes) and its shadow and AO leave with it
+  const backGoal = backOn ? 1 : 0;
+  if (backT !== backGoal) {
+    moved = true; pickDirty = true;
+    backT += Math.sign(backGoal - backT) * dt / 0.7;
+    backT = Math.min(1, Math.max(0, backT));
+    const e = ease(backT);
+    backPanel.position.x = (1 - e) * 60;
+    backPanel.position.y = (1 - e) * 6;
+    backPanel.visible = backT > 0.01;
+  }
   // close up, the studio reflection would wash over the parts behind the glass; fade it with distance
   const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) / homeDistance(), 0.3, 1);
-  M.glassRefl.envMapIntensity = glassMatL.refl.envMapIntensity = 1.25 * near;
+  M.glassRefl.envMapIntensity = glassMatL.refl.envMapIntensity = near;
   applyLighting(t);
 
   stepFly(dt);

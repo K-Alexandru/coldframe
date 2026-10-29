@@ -1,13 +1,13 @@
-import { BRAND } from './brand.js?v=a9088dcd53';
-import { connectModel } from './model.js?v=a9088dcd53';
-import { CATALOG } from './catalog.js?v=a9088dcd53';
-import { totals, money, accessory, shipDate, shipLabel, option, fps, avgFps, onOffer, seriesPicks, seriesMatches, seriesPrice, seriesConfig, nearestSeries } from './pricing.js?v=a9088dcd53';
-import { mountConfigurator } from './configurator.js?v=a9088dcd53';
-import { mountCart } from './cart.js?v=a9088dcd53';
-import { demoCheckoutAllowed } from './gate.js?v=a9088dcd53';
+import { BRAND } from './brand.js?v=9cbc9739d0';
+import { connectModel } from './model.js?v=9cbc9739d0';
+import { CATALOG } from './catalog.js?v=9cbc9739d0';
+import { totals, money, accessory, shipDate, shipLabel, option, fps, avgFps, onOffer, seriesPicks, seriesMatches, seriesPrice, seriesConfig, nearestSeries } from './pricing.js?v=9cbc9739d0';
+import { mountConfigurator } from './configurator.js?v=9cbc9739d0';
+import { mountCart } from './cart.js?v=9cbc9739d0';
+import { demoCheckoutAllowed } from './gate.js?v=9cbc9739d0';
 
 document.querySelectorAll('[data-brand]').forEach(el => { el.textContent = BRAND[el.dataset.brand]; });
-document.title = `Glass Tower | ${BRAND.name}`;
+document.title = `Rime | ${BRAND.name}`;
 // Facts the copy quotes come from the catalog so they can't drift from the prices: finance term, build time, warranty years.
 const warrantyYears = CATALOG.groups.find(g => g.id === 'warranty').options.map(o => ({ def: !!o.default, years: parseInt(o.name, 10) }));
 const FACTS = { financeMonths: CATALOG.financeMonths, buildDays: CATALOG.buildDays,
@@ -37,7 +37,7 @@ if (news) news.addEventListener('submit', e => {
 // Configurator, price block and viewer toolbar.
 const $ = id => document.getElementById(id);
 
-// Viewer toolbar: lighting preview, power, GPU close-up, reset. Rendered once; the model's state keeps it in sync.
+// Viewer toolbar: lighting preview, power, reset. Rendered once; the model's state keeps it in sync.
 const SWATCH = { arctic: '#e8f4ff', ice: '#5fd4ff', ember: '#ff8a3c', violet: '#9a6bff', off: '#20242b',
   rainbow: 'conic-gradient(#ff5f6d, #ffd166, #5fd4a0, #5fd4ff, #9a6bff, #ff5f6d)' };
 const BOOT_LABEL = { off: 'See it boot', boot: 'Starting…', on: 'Shut down', shutdown: 'Shutting down…', cut: 'Shutting down…' };
@@ -48,27 +48,20 @@ $('viewerTools').innerHTML = `
   </div>
   <button type="button" class="icon-btn" id="bootBtn" disabled aria-label="${BOOT_LABEL.off}" title="${BOOT_LABEL.off}">
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.6 6.8a8 8 0 1 0 10.8 0"/></svg></button>
-  <button type="button" class="chip" id="gpuBtn" aria-label="GPU close-up" title="GPU close-up">
-    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="19" height="9.5" rx="2"/><circle cx="9" cy="11.25" r="2.5"/><circle cx="16" cy="11.25" r="2.5"/><path d="M6 19.5h12"/></svg><span class="lbl">GPU close-up</span></button>
   <button type="button" class="icon-btn" id="resetBtn" aria-label="Reset view" title="Reset view">
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v4.5h4.5"/></svg></button>`;
 $('viewerTools').addEventListener('click', e => {
-  const sw = e.target.closest('.swatch'), btn = e.target.closest('.chip, .icon-btn');
+  const sw = e.target.closest('.swatch'), btn = e.target.closest('.icon-btn');
   if (sw) model.send({ mode: sw.dataset.light });
   else if (btn?.id === 'bootBtn') model.send({ power: 'toggle' });
-  else if (btn?.id === 'gpuBtn') model.send({ view: 'gpu' });
   else if (btn?.id === 'resetBtn') model.send({ view: 'home' });
 });
 // Gallery strip: each thumbnail flies the model to one of its camera presets (the embed accepts 'home', 'gpu', 'pump', 'radiator', 'board' and 'rear_close'). The model reports no camera state, so the store tracks the active one,
-// the toolbar's GPU and Reset buttons move it too, and the shopper dragging or zooming the model clears it.
+// the toolbar's Reset button moves it too, and the shopper dragging or zooming the model clears it.
 const thumbs = [...document.querySelectorAll('#gallery [data-view]')];
 const setView = v => thumbs.forEach(t => t.setAttribute('aria-pressed', String(t.dataset.view === v)));
 $('gallery').addEventListener('click', e => { const t = e.target.closest('[data-view]'); if (t) { model.send({ view: t.dataset.view }); setView(t.dataset.view); } });
-$('viewerTools').addEventListener('click', e => { const id = e.target.closest('.chip, .icon-btn')?.id; if (id === 'gpuBtn') setView('gpu'); else if (id === 'resetBtn') setView('home'); });
-// On a phone the toolbar is one row that scrolls sideways; a fade marks the edge while more is hidden.
-const tools = $('viewerTools');
-const toolsMore = () => { if (tools.scrollLeft + tools.clientWidth < tools.scrollWidth - 2) tools.dataset.more = ''; else delete tools.dataset.more; };
-tools.addEventListener('scroll', toolsMore, { passive: true }); addEventListener('resize', toolsMore); toolsMore();
+$('viewerTools').addEventListener('click', e => { const id = e.target.closest('.icon-btn')?.id; if (id === 'resetBtn') setView('home'); });
 // The power button stays disabled until the model reports its state, so an early click can't be lost.
 model.onState(s => {
   const bootLabel = BOOT_LABEL[s.phase] || BOOT_LABEL.off;
@@ -122,16 +115,16 @@ const updatePrice = config => {
   $('subtitle').textContent = series.name + (customised ? ' · customised' : '');
   $('bestChip').textContent = series.badge ?? ''; $('bestChip').hidden = !series.badge || customised;
   $('price').textContent = money(t.subtotal);
-  $('addPrice').textContent = money(t.subtotal);
   $('monthly').textContent = `or ${money(t.monthly)}/mo for ${CATALOG.financeMonths} months at 0% APR`;
   $('thisBuild').innerHTML = BUILD_ROWS.map(([label, gid, short]) => `<div><dt>${label}</dt><dd>${short(option(CATALOG, gid, config[gid]).name)}</dd></div>`).join('');
   $('target').textContent = `1440p · ~${avgFps(CATALOG, config, '1440p')} FPS avg`;
   $('target').title = 'Estimated from internal testing; real results vary.';
-  $('ship').textContent = `Ships by ${shipLabel(shipDate(new Date(), CATALOG.buildDays))} · free shipping`;
+  $('ship').textContent = `Ships by ${shipLabel(shipDate(new Date(), CATALOG.buildDays))}`;
   const w = option(CATALOG, 'warranty', config.warranty), lower = s => s.charAt(0).toLowerCase() + s.slice(1);
   $('trustWarranty').textContent = `${parseInt(w.name, 10)}-year warranty`;
   $('warrantyText').textContent = `${w.name} (${lower(w.spec)}). Lifetime phone and chat support. 30-day returns: send the PC back within 30 days of delivery for a refund.`;
-  $('summaryBar').innerHTML = `<span>${CATALOG.name}</span><b>${money(t.subtotal)}</b><small class="cur">CAD</small><span class="muted">${money(t.monthly)}/mo</span><button class="primary" data-add>Add to cart</button>`;
+  $('summaryBar').innerHTML = `<div class="sb-name">${CATALOG.name}<span class="muted">${$('subtitle').textContent}</span></div>`
+    + `<div class="sb-price"><b>${money(t.subtotal)} <small class="cur">CAD</small></b><span class="muted">or ${money(t.monthly)}/mo</span></div><button class="primary" data-add>Add to cart</button>`;
   lastConfig = config;
   renderPerf(config, perfRes);
   renderSpecs(config);
@@ -192,7 +185,7 @@ $('perf').addEventListener('keydown', e => {
 // Spec table: one row per configurator group plus the fixed rows, split into collapsible categories, then what ships in the box.
 // A name that is a catalog group id shows that group's current pick; any other name is a fixed row.
 const FIXED_SPECS = {
-  Case: 'Glass Tower dual-chamber mid-tower, 470 × 285 × 476 mm, 4 mm tempered glass',
+  Case: 'Rime dual-chamber mid-tower, 470 × 285 × 476 mm, 4 mm tempered glass',
   Motherboard: 'ASUS ROG STRIX X870E-E GAMING WIFI',
   Fans: '4 × NZXT F120 RGB Duo (3 intake, 1 exhaust)',
   Wireless: 'Wi-Fi 7, Bluetooth 5.4',
@@ -263,7 +256,7 @@ const ACC_TICK = '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24
 $('accessories').innerHTML = `
   <p class="kicker">Accessories</p>
   <h2 id="accTitle">Complete your setup</h2>
-  <p class="acc-lede">Monitor, keyboard, mouse and headset, designed by us to sit next to the Glass Tower. They ship with your PC and are a separate line in your cart.</p>
+  <p class="acc-lede">Monitor, keyboard, mouse and headset, designed by us to sit next to the Rime. They ship with your PC and are a separate line in your cart.</p>
   <ul class="acc-grid">
     ${CATALOG.accessories.map(a => `
     <li class="acc-card" data-acc="${a.id}">
@@ -330,7 +323,7 @@ $('accessories').addEventListener('click', e => {
 // Local-only demo checkout. The public build has no checkout.js, and this import is never reached from its host.
 const demoCheckout = demoCheckoutAllowed(location.hostname, BRAND.domain);
 if (demoCheckout) {
-  import('./checkout.js?v=a9088dcd53').then(m => m.mountCheckout({ catalog: CATALOG, brand: BRAND, cart })).catch(e => console.warn('demo checkout unavailable:', e.message));
+  import('./checkout.js?v=9cbc9739d0').then(m => m.mountCheckout({ catalog: CATALOG, brand: BRAND, cart })).catch(e => console.warn('demo checkout unavailable:', e.message));
 }
 
 // Header nav. A link whose section is not on the page yet reads "Soon" and does nothing, rather than pointing nowhere.

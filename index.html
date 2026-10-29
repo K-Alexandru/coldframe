@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="robots" content="noindex, nofollow">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Glass Tower | Custom Gaming PC</title>
+<title>Rime | Custom Gaming PC</title>
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='9' y='3' width='14' height='26' rx='3' fill='none' stroke='%235fd4ff' stroke-width='3'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="storefront/css/store.css?v=a9088dcd53">
+<link rel="stylesheet" href="storefront/css/store.css?v=9cbc9739d0">
 </head>
 <body id="top">
-<div class="announce">Free shipping on every build · <span data-catalog="warrantyYears"></span>-year warranty · 0% APR for <span data-catalog="financeMonths"></span> months</div>
+<div class="announce"><span>Free shipping on every build</span><span><span data-catalog="warrantyYears"></span>-year warranty</span><span class="ann-fin">0% APR for <span data-catalog="financeMonths"></span> months</span></div>
 <header class="site">
   <button type="button" id="menuBtn" class="menu-btn" aria-label="Menu" aria-expanded="false" aria-controls="navSheet"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   <a class="wordmark" href="./"><span data-brand="name"></span></a>
@@ -23,12 +23,12 @@
   </nav>
   <button id="cartBtn" class="cart-btn" aria-label="Cart"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="20" r="1.4" fill="currentColor"/><circle cx="17" cy="20" r="1.4" fill="currentColor"/></svg><span id="cartCount" hidden>0</span></button>
 </header>
-<nav class="crumbs" aria-label="Breadcrumb"><a href="#top">Gaming PCs</a> / <span aria-current="page">Glass Tower</span></nav>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="#top">Gaming PCs</a> / <span aria-current="page">Rime</span></nav>
 <main>
   <section class="hero">
     <div class="viewer-col">
     <div class="viewer-wrap">
-      <iframe id="viewer" title="Interactive 3D view of your configuration" src="glass-tower/index.html?embed=1&v=a9088dcd53"></iframe>
+      <iframe id="viewer" title="Interactive 3D view of your configuration" src="glass-tower/index.html?embed=1&v=9cbc9739d0"></iframe>
       <div id="viewerTools" class="viewer-tools"></div>
       <p class="viewer-cap" id="viewerCap">Drag to rotate · scroll to zoom</p>
     </div>
@@ -42,7 +42,7 @@
     </div>
     </div>
     <div class="buy">
-      <div class="title-row"><h1 id="title">Glass Tower</h1><span class="chip-best" id="bestChip" hidden>Best seller</span></div>
+      <div class="title-row"><h1 id="title">Rime</h1><span class="chip-best" id="bestChip" hidden>Best seller</span></div>
       <p id="subtitle"></p>
       <a class="rating" href="#reviews"><span class="stars" aria-hidden="true">★★★★★</span> <b>4.8</b> · 312 reviews</a>
       <div id="series" class="series" role="radiogroup" aria-label="Series"></div>
@@ -54,14 +54,13 @@
         <p id="target" class="target"></p>
       </section>
       <div class="actions">
-        <button type="button" class="primary add add-top" id="addTop" data-add>Add to cart · <span id="addPrice"></span></button>
+        <button type="button" class="primary add add-top" id="addTop" data-add>Add to cart</button>
         <button type="button" class="ghost" id="customizeBtn">Customize</button>
       </div>
-      <div id="ship"></div>
       <ul id="trust" class="trust">
-        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="trustWarranty"></span></li>
-        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 7h12v9H2zM14 10h4l3 3v3h-7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.6" fill="currentColor"/><circle cx="17" cy="17.5" r="1.6" fill="currentColor"/></svg><span>Ships in <span data-catalog="buildDays"></span> days</span></li>
-        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>30-day returns</span></li>
+        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 7h12v9H2zM14 10h4l3 3v3h-7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.6" fill="currentColor"/><circle cx="17" cy="17.5" r="1.6" fill="currentColor"/></svg><span><b id="ship"></b><small>Free shipping · built and burn-in tested in <span data-catalog="buildDays"></span> days</small></span></li>
+        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b id="trustWarranty"></b><small>Parts and labor · lifetime phone and chat support</small></span></li>
+        <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>30-day returns</b><small>Full refund within 30 days of delivery</small></span></li>
       </ul>
       <div class="disclosures">
         <details><summary>In the box</summary><ul id="boxList" class="box-list"></ul></details>
@@ -78,7 +77,7 @@
     <h2>How it is built</h2>
     <div class="story-rows">
       <article class="story-row">
-        <figure class="story-img"><img src="storefront/img/story-airflow.webp" width="1200" height="588" loading="lazy" alt="Inside the Glass Tower, looking down past the cooler's display at the three lit intake fans in the floor"></figure>
+        <figure class="story-img"><img src="storefront/img/story-airflow.webp" width="1200" height="588" loading="lazy" alt="Inside the Rime, looking down past the cooler's display at the three lit intake fans in the floor"></figure>
         <div class="story-txt">
           <p class="stat"><b>360 mm</b><span>radiator, three intake fans</span></p>
           <h3>Tuned for airflow</h3>
@@ -86,7 +85,7 @@
         </div>
       </article>
       <article class="story-row">
-        <figure class="story-img"><img src="storefront/img/story-burnin.webp" width="1200" height="588" loading="lazy" alt="The finished Glass Tower from the front, powered on, with lit fans behind the glass side panel"></figure>
+        <figure class="story-img"><img src="storefront/img/story-burnin.webp" width="1200" height="588" loading="lazy" alt="The finished Rime from the front, powered on, with lit fans behind the glass side panel"></figure>
         <div class="story-txt">
           <p class="stat"><b>72 hours</b><span>of stress testing per build</span></p>
           <h3>72-hour burn-in</h3>
@@ -192,6 +191,6 @@
 <div id="summaryBar" class="summary-bar" hidden></div>
 <div id="scrim" hidden></div>
 <aside id="cartDrawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="cartTitle" hidden><div id="cartBody"></div></aside>
-<script type="module" src="storefront/js/main.js?v=a9088dcd53"></script>
+<script type="module" src="storefront/js/main.js?v=9cbc9739d0"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 import { monthly as monthlyOf, money, option, delta, onOffer, partLabel, encodeConfig, decodeConfig, shipDate, shipLabel,
-  accessory, isAccessoryLine, normalizeItems, lineTotal as lineTotalOf, cartTotals, maxQty, ACC_MAX_QTY } from './pricing.js?v=a9088dcd53';
+  accessory, isAccessoryLine, normalizeItems, lineTotal as lineTotalOf, cartTotals, maxQty, ACC_MAX_QTY } from './pricing.js?v=9cbc9739d0';
 
 // `onChange(items)` runs after every draw so the page's accessory buttons can follow the cart.
 export function mountCart({ catalog, brand, drawer, body, scrim, countEl, onChange = () => {} }) {
